@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="frame-anchors" content="stable">
+<title>Bun's unreleased Rust port has 13,365 unsafe blocks. Most can be removed.</title>
+<meta name="description" content="An audit of every unsafe block in Bun's unreleased Rust port: what each relies on, and what removing it would take.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://bun.sh/bun-unsafe-audit.html">
+<meta property="og:title" content="Bun's unreleased Rust port has 13,365 unsafe blocks. Most can be removed.">
+<meta property="og:description" content="An audit of every unsafe block in Bun's unreleased Rust port: what each relies on, and what removing it would take.">
+<meta property="og:image" content="https://bun.sh/bun-unsafe-audit-og.png">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1260">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@bunjavascript">
+<meta name="twitter:title" content="Bun's unreleased Rust port has 13,365 unsafe blocks. Most can be removed.">
+<meta name="twitter:description" content="An audit of every unsafe block in Bun's unreleased Rust port: what each relies on, and what removing it would take.">
+<meta name="twitter:image" content="https://bun.sh/bun-unsafe-audit-og.png">
+<link rel="icon" type="image/svg+xml" href="{{ "favicon.svg" | relURL }}">
+<style>
+  :root{
+    --bg:#0b0c0f; --bg2:#0f1116; --panel:#14161c; --panel2:#191c24; --line:#23262f; --line2:#2d313c;
+    --tx:#f2ede2; --tx2:#cfc8b8; --mut:#938d7e; --faint:#5f5b51;
+    --accent:#f5a97f;
+    --d1:#7fd1a8; --d2:#5fb3c9; --d3:#e8c170; --d4:#8aa9e8; --d5:#6e7385;
+    --bad:#e0796b; --warn:#e8c170;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--tx);font-family:var(--sans);font-size:15px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  ::selection{background:#f5a97f33}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.9em;background:var(--bg2);padding:1px 5px;border-radius:4px;color:var(--tx)}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 28px}
+  .small{font-size:12.5px;color:var(--mut)}
+
+  h1{font-size:clamp(28px,4.6vw,54px);font-weight:760;letter-spacing:-.025em;line-height:1.1}
+  h2{font-size:clamp(20px,2.4vw,28px);font-weight:700;letter-spacing:-.015em;line-height:1.25}
+  h3{font-size:16px;font-weight:650;letter-spacing:-.01em}
+  .lede{color:var(--tx2);max-width:860px;margin-top:20px;font-size:16px;line-height:1.7}
+  .lede b{color:var(--tx)}
+  .lede i{color:var(--tx2)}
+
+  .part{padding:40px 0 0;border-top:1px solid var(--line);margin-top:88px}
+  .part .pt{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+  .part .pn{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--accent);font-weight:700;flex:none}
+  .part h2{font-size:clamp(22px,3vw,34px)}
+  .part .lede{margin-top:14px}
+  section{padding:72px 0 8px}
+  .sechead{display:flex;align-items:baseline;gap:14px;margin-bottom:14px}
+  .sechead .sn{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.1em;flex:none}
+  .sechead h3{font-size:clamp(18px,2.2vw,24px);font-weight:700;letter-spacing:-.014em}
+  .secsub{color:var(--tx2);max-width:840px;font-size:15px;line-height:1.7;margin-bottom:30px}
+  .secsub b{color:var(--tx)}
+  .secsub{letter-spacing:-.002em}
+
+  .groupbar{display:flex;margin:24px 0 7px;gap:6px}
+  .groupbar>div{display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:7px;position:relative}
+  .groupbar>div::after{content:'';position:absolute;left:0;right:0;bottom:0;height:7px;
+    border:1px solid var(--line2);border-bottom:none;border-radius:6px 6px 0 0}
+  .groupbar .gt{font-size:13px;font-weight:700;color:var(--tx);letter-spacing:-.01em}
+  .groupbar .gn{font-family:var(--mono);font-size:11.5px;color:var(--tx2);margin-top:2px}
+  .groupbar .gsafe .gt{color:var(--d1)}
+  .groupbar .gkeep .gt{color:var(--d4)}
+  @media(max-width:760px){.groupbar .gt{font-size:11.5px}.groupbar .gn{font-size:10px}}
+  .dbar{display:flex;height:46px;border-radius:10px;overflow:hidden;border:1px solid var(--line);margin:0}
+  .dbar>div{height:100%;min-width:1px;position:relative;transition:filter .15s}
+  .dbar>div:hover{filter:brightness(1.18)}
+  .dbar>div .bl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#0b0c0f;overflow:hidden;white-space:nowrap}
+  .dbar>div .bl .n{font-family:var(--mono);font-size:14px;font-weight:760;line-height:1.1}
+  .dbar>div .bl .k{font-size:9.5px;font-weight:650;letter-spacing:.04em;opacity:.78;text-transform:uppercase}
+  .dlegend{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:14px;font-size:12.5px;color:var(--tx2)}
+  .dlegend>span{display:flex;align-items:baseline;gap:7px}
+  .dlegend .sw{width:10px;height:10px;border-radius:3px;flex:none;position:relative;top:1px}
+  .dlegend b{color:var(--tx);font-weight:650}
+  .dlegend .num{color:var(--mut);font-size:11.5px}
+  .ddefs{margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .ddefs>div{background:var(--panel);padding:14px 16px}
+  .ddefs h4{font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .ddefs h4 .sw{width:9px;height:9px;border-radius:3px;flex:none}
+  .ddefs p{font-size:11.5px;color:var(--mut);line-height:1.55}
+
+  .findings{list-style:none;margin-top:26px;display:grid;gap:10px;max-width:860px}
+  .findings li{display:grid;grid-template-columns:30px 1fr;gap:14px;align-items:baseline;
+    font-size:15px;color:var(--tx2);line-height:1.55}
+  .findings li .fi{font-family:var(--mono);font-size:12px;color:var(--faint);font-weight:700;text-align:right}
+  .findings li .fk{font-weight:700;color:var(--tx)}
+  .badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px}
+  .badge{font-family:var(--mono);font-size:12px;color:var(--mut);border:1px solid var(--line);border-radius:99px;
+    padding:6px 14px;background:var(--bg2)}
+  .badge b{color:var(--tx2);font-weight:600}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:6px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 22px 20px;
+    border-top:3px solid var(--sc,var(--line2))}
+  .stat .v{font-family:var(--mono);font-size:40px;font-weight:740;letter-spacing:-.02em;line-height:1;color:var(--sc)}
+  .stat h4{font-size:15.5px;font-weight:680;margin:12px 0 6px;letter-spacing:-.01em}
+  .stat p{font-size:13.5px;color:var(--tx2);line-height:1.65}
+  .stat p code{font-size:.86em}
+
+  .fine{margin-top:6px;display:grid;gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .fine>div{display:grid;grid-template-columns:118px 1fr;gap:28px;padding:24px 26px;background:var(--panel);
+    border-top:1px solid var(--line)}
+  .fine>div:first-child{border-top:none}
+  .fine .fv{font-family:var(--mono);font-size:24px;font-weight:740;letter-spacing:-.01em;text-align:right;line-height:1.15;color:var(--tx)}
+  .fine .ft b{display:block;font-size:15px;color:var(--tx);font-weight:680;margin-bottom:7px;letter-spacing:-.01em}
+  .fine .ft p{font-size:13.5px;color:var(--tx2);line-height:1.7;max-width:820px}
+
+  .cmp{margin-top:6px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .cmp>div{display:grid;grid-template-columns:170px minmax(0,1fr) 64px;gap:18px;align-items:center;
+    padding:15px 22px;background:var(--panel);border-top:1px solid var(--line)}
+  .cmp>div:first-child{border-top:none}
+  .cmp>div.hl{background:linear-gradient(90deg,#f5a97f0d,var(--panel))}
+  .cmp .cn{font-size:14px;font-weight:650;color:var(--tx);letter-spacing:-.005em}
+  .cmp .cn .cw{display:block;font-size:11.5px;color:var(--tx2);font-weight:450;margin-top:3px;line-height:1.5}
+  .cmp .ct{height:22px;background:var(--bg);border-radius:6px;overflow:hidden;position:relative}
+  .cmp .ct>div{height:100%;border-radius:6px}
+  .cmp .ct .cs{position:absolute;top:0;bottom:0;display:flex;align-items:center;
+    font-family:var(--mono);font-size:10px;color:var(--mut);white-space:nowrap}
+  .cmp .cv{font-family:var(--mono);font-size:17px;font-weight:740;text-align:right;color:var(--tx)}
+  .cmp .cv .cu{display:block;font-size:9px;color:var(--mut);font-weight:500;letter-spacing:.04em}
+  @media(max-width:760px){.cmp>div{grid-template-columns:1fr 56px;gap:8px 14px;padding:13px 16px}.cmp .ct{grid-column:1/-1}.cmp .cs{display:none}}
+  .obar{display:flex;height:38px;border-radius:9px;overflow:hidden;border:1px solid var(--line);margin:6px 0 12px}
+  .obar>div{position:relative}
+  .obar>div .obl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:10.5px;font-weight:700;color:#0b0c0f;white-space:nowrap;overflow:hidden}
+  .obar>div{height:100%;min-width:1px}
+  .obar>div:hover{filter:brightness(1.2)}
+  .olegend{display:flex;flex-wrap:wrap;gap:7px 18px;font-size:12px;color:var(--tx2)}
+  .olegend .sw{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px}
+  .olegend b{color:var(--tx)}
+
+  .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .scrollx::-webkit-scrollbar{height:8px}
+  .scrollx::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+  .scrollhint{display:none;font-size:11px;color:var(--faint);margin-top:8px;text-align:center;font-family:var(--mono)}
+  #flowsvg{width:100%;height:auto;display:block;margin-top:10px}
+  #flowsvg text{font-family:var(--sans)}
+  #flowsvg .colhead{font-family:var(--mono);font-size:11px;letter-spacing:.12em;fill:var(--mut);text-transform:uppercase;font-weight:600}
+  #flowsvg .nlabel{font-size:12.5px;fill:var(--tx);font-weight:560;cursor:pointer;paint-order:stroke;stroke:#0b0c0f;stroke-width:3.5px;stroke-linejoin:round}
+  #flowsvg .nsub{font-family:var(--mono);font-size:10.5px;fill:var(--mut)}
+  #flowsvg rect.node{cursor:pointer;rx:3}
+  #flowsvg path.ribbon{mix-blend-mode:screen;transition:opacity .25s}
+  .flownote{margin-top:16px;font-size:13px;color:var(--tx2);background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:13px 16px;min-height:48px;line-height:1.6;max-width:860px}
+  .flownote b{color:var(--tx)}
+
+  .ledgerbar{display:flex;justify-content:space-between;align-items:center;margin:26px 0 10px;gap:14px;flex-wrap:wrap}
+  .xall{font-family:var(--mono);font-size:11.5px;color:var(--tx2);background:var(--panel);border:1px solid var(--line2);
+    border-radius:8px;padding:7px 14px;cursor:pointer;user-select:none;white-space:nowrap}
+  .xall:hover{color:var(--tx);border-color:var(--mut)}
+  .ledger{border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .lrow{border-top:1px solid var(--line);background:var(--panel)}
+  .lrow:first-child{border-top:none}
+  .lrow>header{display:grid;grid-template-columns:34px minmax(0,1fr) 200px 86px 18px;gap:14px;align-items:center;
+    padding:13px 18px;cursor:pointer;user-select:none}
+  .lrow>header:hover{background:var(--panel2)}
+  .lrow .li{font-family:var(--mono);font-size:11px;color:var(--faint);font-weight:700}
+  .lrow .ln{font-size:14px;font-weight:600;color:var(--tx);letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .ln .lo{font-size:11px;color:var(--mut);font-weight:500;margin-left:8px;font-family:var(--mono)}
+  .lrow .lb{display:flex;height:14px;border-radius:5px;overflow:hidden;background:var(--bg)}
+  .lrow .lb>div{height:100%;min-width:1px}
+  .lrow .lc{font-family:var(--mono);font-size:14px;font-weight:700;text-align:right;color:var(--tx)}
+  .lrow .lc .lp{display:block;font-size:10px;color:var(--mut);font-weight:500}
+  .lrow .chev{color:var(--mut);transition:transform .2s;font-size:16px;text-align:center}
+  .lrow.open .chev{transform:rotate(90deg)}
+  .lrow .lbody{display:none;padding:8px 20px 26px;border-top:1px solid var(--line);background:var(--bg2)}
+  .lrow.open .lbody{display:block}
+  .lgrid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);gap:0 36px;margin-top:14px}
+  .lblock{margin-bottom:20px}
+  .lblock:last-child{margin-bottom:0}
+  .lblock h5{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);
+    margin-bottom:9px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .lblock h5::after{content:'';flex:1;height:1px;background:var(--line)}
+  .lblock p{font-size:13.5px;color:var(--tx2);line-height:1.72;overflow-wrap:break-word}
+  .lblock.fix{background:linear-gradient(180deg,#7fd1a80a,transparent);border:1px solid #7fd1a820;border-radius:10px;padding:14px 16px}
+  .lblock.fix h5{color:var(--d1)}
+  .lblock.fix h5::after{background:#7fd1a820}
+  .exlist{list-style:none;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:2px 15px}
+  .exlist li{font-size:12px;color:var(--tx2);padding:9px 0;border-top:1px solid var(--line);line-height:1.55}
+  .exlist li:first-child{border-top:none}
+  .exlist li .loc{color:var(--accent);font-family:var(--mono);font-size:11.5px;display:block;margin-bottom:2px;overflow-wrap:anywhere}
+  .mbars .mb{display:grid;grid-template-columns:minmax(80px,42%) 1fr 40px;align-items:center;gap:9px;margin-bottom:6px;font-size:12px}
+  .mbars .mb:last-child{margin-bottom:0}
+  .mbars .mb .l{color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:11px}
+  .mbars .mb .t{height:8px;background:var(--bg);border-radius:4px;overflow:hidden}
+  .mbars .mb .t>div{height:100%;border-radius:4px}
+  .mbars .mb .v{font-family:var(--mono);font-size:10.5px;color:var(--mut);text-align:right}
+
+  .passes{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px;margin-top:6px}
+  .pass{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .pass .pq{font-size:15px;font-weight:680;line-height:1.4;letter-spacing:-.01em}
+  .pass .pm{font-family:var(--mono);font-size:11px;color:var(--mut);margin-top:6px}
+  .pass .pbar{display:flex;height:14px;border-radius:6px;overflow:hidden;margin:16px 0 4px;border:1px solid var(--line)}
+  .pass .pbar>div{height:100%;min-width:1px}
+  .pass ul{list-style:none;margin-top:10px}
+  .pass li{display:grid;grid-template-columns:13px 50px 1fr;gap:10px;padding:8px 0;font-size:12px;color:var(--tx2);
+    border-top:1px solid var(--line);align-items:baseline;line-height:1.5}
+  .pass li:first-child{border-top:none}
+  .pass li .sw{width:9px;height:9px;border-radius:3px;position:relative;top:1px}
+  .pass li .cn{font-family:var(--mono);color:var(--tx);font-weight:650;text-align:right;font-size:12px}
+
+  .uscards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:26px}
+  .uscard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;border-top:3px solid var(--warn)}
+  .uscard .n{font-family:var(--mono);font-size:26px;font-weight:740;color:var(--warn)}
+  .uscard h4{font-size:14px;font-weight:680;margin:8px 0 7px}
+  .uscard p{font-size:12px;color:var(--tx2);line-height:1.6}
+  .uscard .ex{font-family:var(--mono);font-size:10.5px;color:var(--accent);margin-top:10px;overflow-wrap:anywhere;line-height:1.6}
+  .vlist{margin-top:30px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .vitem{padding:18px 22px;border-top:1px solid var(--line);background:var(--panel)}
+  .vitem:first-child{border-top:none}
+  .vitem .vfn{font-family:var(--mono);font-size:13px;color:var(--tx);font-weight:650;overflow-wrap:anywhere}
+  .vitem .vloc{font-family:var(--mono);font-size:11px;color:var(--accent);display:block;margin-top:3px}
+  .vitem .vdetail{font-size:13px;color:var(--tx2);line-height:1.65;margin-top:7px;max-width:900px}
+
+  #wfsvg{width:100%;height:auto;display:block}
+  .proj{display:grid;grid-template-columns:60px minmax(0,1fr) 120px;gap:18px;padding:22px 0;border-top:1px solid var(--line);align-items:start}
+  .proj:first-of-type{border-top:none}
+  .proj .pid{font-family:var(--mono);font-weight:740;font-size:17px;color:var(--accent)}
+  .proj .pid .eff{display:block;font-size:9px;color:var(--mut);font-weight:600;letter-spacing:.1em;margin-top:4px}
+  .proj h4{font-size:15px;font-weight:680;margin-bottom:7px;line-height:1.4;letter-spacing:-.01em}
+  .proj .pwhat{font-size:13px;color:var(--tx2);line-height:1.65}
+  .proj .pwhy{font-size:12.5px;color:var(--tx2);margin-top:9px;line-height:1.6;border-left:2px solid var(--line2);padding-left:12px}
+  .proj .pwhy b{color:var(--tx)}
+  .proj .pred{text-align:right}
+  .proj .pred .n{font-family:var(--mono);font-size:21px;font-weight:740;color:var(--d1)}
+  .proj .pred .k{font-size:10.5px;color:var(--mut);margin-top:3px;line-height:1.4}
+  .rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:14px}
+  .rgrid>div{background:var(--panel);padding:16px 18px}
+  .rgrid .rn{font-family:var(--mono);font-size:10px;color:var(--d3);font-weight:700;letter-spacing:.1em}
+  .rgrid h5{font-size:13.5px;font-weight:680;margin:5px 0 6px}
+  .rgrid p{font-size:11.5px;color:var(--tx2);line-height:1.55}
+
+  #tmap{width:100%;height:520px;position:relative;margin-top:4px;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+  .tile{position:absolute;overflow:hidden;cursor:pointer;border:1px solid #0b0c0f;padding:7px 9px;transition:filter .12s}
+  .tile:hover{filter:brightness(1.3);z-index:2}
+  .tile.sel{outline:2px solid var(--accent);outline-offset:-2px;z-index:3}
+  .tile .tn{font-size:11.5px;font-weight:650;color:#0b0c0f;line-height:1.2}
+  .tile .tv{font-family:var(--mono);font-size:10.5px;color:#0b0c0fb0;margin-top:1px}
+  #tdetail{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+  #tdetail .fbar{display:flex;height:20px;border-radius:6px;overflow:hidden;margin:13px 0 11px;border:1px solid var(--line)}
+  #tdetail .fbar>div{height:100%;min-width:1px}
+  .tmaplegend{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px;color:var(--mut);flex-wrap:wrap}
+  .tmaplegend .grad{flex:0 1 180px;height:10px;border-radius:5px;background:linear-gradient(90deg,#4a4f5e,#7fd1a8)}
+
+  table.recon{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}
+  table.recon th{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);
+    text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);font-weight:600}
+  table.recon td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--tx2)}
+  table.recon td.n{text-align:right;font-family:var(--mono);color:var(--tx)}
+  .pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:24px 0 8px}
+  .pstep{background:var(--panel);border:1px solid var(--line);padding:16px 18px;border-radius:12px}
+  .pstep .pn{font-family:var(--mono);font-size:19px;font-weight:740;color:var(--accent)}
+  .pstep .pl{font-size:12px;color:var(--tx2);margin-top:6px;line-height:1.55}
+  .caveat{margin-top:20px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    font-size:13px;color:var(--tx2);line-height:1.7}
+  .caveat b{color:var(--tx)}
+  footer{padding:44px 0 72px;color:var(--faint);font-size:12px;border-top:1px solid var(--line);margin-top:64px}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}
+
+  nav{position:sticky;top:0;z-index:50;background:#0b0c0fe8;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:2px;align-items:center;height:46px;overflow-x:auto;scrollbar-width:none}
+  nav .wrap::-webkit-scrollbar{display:none}
+  nav a{color:var(--mut);font-size:12px;font-weight:560;padding:5px 8px;white-space:nowrap}
+  nav a:hover{color:var(--tx);background:none;text-decoration:none}
+  nav .brand{color:var(--tx);font-weight:700;margin-right:8px;display:flex;align-items:center;gap:8px;font-size:13px;flex:none}
+  nav .brand .dot{width:9px;height:9px;border-radius:99px;background:var(--accent);box-shadow:0 0 12px #f5a97f88}
+  nav .pdiv{color:var(--faint);font-family:var(--mono);font-size:10px;padding:0 4px;flex:none}
+
+  #tip{position:fixed;z-index:200;pointer-events:none;opacity:0;transition:opacity .12s;
+    background:#1c1f28;border:1px solid var(--line2);border-radius:8px;padding:8px 11px;max-width:300px;
+    font-size:12px;line-height:1.5;color:var(--tx);box-shadow:0 6px 24px #0008}
+  #tip.on{opacity:1}
+  #tip .tt{font-weight:700;display:block;margin-bottom:2px}
+  #tip .tn{font-family:var(--mono);color:var(--tx2)}
+  [data-tip]{cursor:default}
+  #hero{padding:86px 0 40px;background:
+    radial-gradient(1000px 460px at 14% -12%, #f5a97f10, transparent 62%),
+    radial-gradient(800px 400px at 88% -4%, #7fd1a80a, transparent 62%)}
+
+  @media(max-width:880px){ .lgrid{grid-template-columns:minmax(0,1fr)} }
+  @media(max-width:760px){
+    body{font-size:14.5px}
+    .wrap{padding:0 12px}
+    h1{line-height:1.18}
+    h1 br{display:none}  /* let the headline reflow instead of orphaning words */
+    /* full-bleed the data-heavy blocks; prose keeps the 12px gutter */
+    .dbar,.groupbar,.obar,.cmp,.fine,.ledger,#tmap,#tdetail,table.recon,.scrollx,
+    .stats,.passes,.ddefs,.uscards,.vlist,.rgrid,.floorgrid,.pipeline{
+      margin-left:-12px;margin-right:-12px;width:auto}
+    .cmp,.fine,.ledger,#tmap,#tdetail,table.recon{border-radius:0;border-left:none;border-right:none}
+    section{padding:36px 0 6px}
+    .part{margin-top:40px}
+    #hero{padding:50px 0 24px}
+    .lede{font-size:14.5px}
+    .stat{padding:18px}
+    .stat .v{font-size:32px}
+    .fine>div{grid-template-columns:1fr;gap:6px;padding:16px 18px}
+    .fine .fv{text-align:left}
+    .scrollhint{display:block}
+    .scrollx>svg{min-width:880px}
+    .dbar{height:38px}
+    .dbar>div .bl .n{font-size:11px}
+    .dbar>div .bl .k{display:none}
+    .lrow>header{grid-template-columns:26px minmax(0,1fr) 70px 16px;gap:10px;padding:12px 14px}
+    .lrow .lb{grid-column:1/-1;order:5;margin-top:2px}
+    .lrow .lbody{padding:6px 14px 22px}
+    .proj{grid-template-columns:46px 1fr;gap:10px 14px}
+    .proj .pred{grid-column:1/-1;text-align:left;display:flex;align-items:baseline;gap:10px;border-top:1px dashed var(--line);padding-top:10px}
+    #tmap{height:560px}
+  }
+</style>
+</head>
+<body>
+<div id="tip"></div>
+
+<nav><div class="wrap">
+  <a href="/" class="brand" style="color:var(--tx);text-decoration:none"><span class="dot"></span>unsafe in Bun · commit.log</a>
+  <a href="#why">Origins</a><a href="#territory">Subsystems</a><a href="#map">Map</a>
+  <a href="#fine">The number</a><a href="#compare">Comparison</a><a href="#ledger">Patterns</a><a href="#evidence">Evidence</a><a href="#plan">Plan</a>
+  <a href="#methodology" style="margin-left:auto">Methodology</a>
+</div></nav>
+
+<!-- ════════════════════════════ HERO ════════════════════════════ -->
+<header id="hero"><div class="wrap">
+  <div style="font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;font-weight:600">Bun · Rust codebase audit · May 21, 2026 · <span style="color:var(--mut)">AI generated</span></div>
+  <h1>Bun's unreleased Rust port has<br>
+  13,365 <code style="background:none;padding:0;color:var(--accent)">unsafe</code> blocks.<br>
+  Most can be removed.</h1>
+  <p class="lede" style="color:var(--tx);border-left:2px solid var(--line2);padding-left:14px"><b>Bun's Rust port
+  has not shipped in a released build yet.</b> The Bun you install today still runs the original Zig
+  implementation. This audit is the pre-release pass over the port.</p>
+  <p class="lede">Every <code>unsafe</code> counted with one <code>ripgrep</code> command, then sorted by what
+  removing it takes — command and raw data at the bottom, re-run it yourself. The bar groups all 13,365 by where
+  each could go.</p>
+  <div class="groupbar" id="hero-groups"></div>
+  <div class="dbar" id="hero-bar"></div>
+  <div class="dlegend" id="hero-legend"></div>
+  <ul class="findings">
+    <li><span class="fi">01</span><span><span class="fk" style="color:var(--warn)">Five functions are unsound today.</span> Undefined behavior reachable from <i>safe</i> Rust — real bugs the audit turned up, not even part of the 13,365. <a href="#plan">See them ↓</a></span></li>
+    <li><span class="fi">02</span><span><span class="fk" style="color:var(--tx)">3% of the count exists for performance.</span> The rest is the FFI boundary and ownership idioms carried over from the Zig port — declared, not hidden.</span></li>
+    <li><span class="fi">03</span><span><span class="fk" style="color:var(--d1)">~9,300 can become safe code; ~4,000 stays unsafe.</span> The accounting for which is which, and what each conversion costs, is below. <a href="#plan">See the plan ↓</a></span></li>
+  </ul>
+  <div class="badges" id="hero-badges"></div>
+</div></header>
+
+<section id="why"><div class="wrap">
+  <div class="sechead"><h3>Where it comes from</h3></div>
+  <p class="secsub">Every site by root cause. Three — performance, the Zig port, the FFI boundary — cover two-thirds.</p>
+  <div class="obar" id="origin-bar"></div>
+  <div class="olegend" id="origin-legend"></div>
+  <div class="stats" id="why-cards" style="margin-top:34px"></div>
+</div></section>
+
+<section id="compare"><div class="wrap">
+  <div class="sechead"><h3>Compared to other Rust runtimes</h3></div>
+  <p class="secsub">Unsafe per 1,000 lines of Rust, measured the same way in each project. Density tracks how close the code sits
+  to a C boundary: a crate that only binds a C++ engine is densest, a runtime that writes its own engine in Rust
+  is sparsest. Bun keeps its bindings and runtime in one workspace; Deno splits the binding into rusty_v8 and
+  writes much of its runtime in TypeScript. Draw your own conclusions.</p>
+  <div class="cmp" id="cmp"></div>
+  <p class="small" style="margin-top:12px;line-height:1.7">Counted with the measurement command from the
+  methodology section, vendored C/C++ excluded, May 21 2026, commits pinned per row. Lines are Rust source only.</p>
+</div></section>
+
+<section id="territory"><div class="wrap">
+  <div class="sechead"><h3>Where it lives</h3></div>
+  <p class="secsub">Area = unsafe sites. Greener = more of them replaceable. Click a tile for its breakdown.</p>
+  <div id="tmap"></div>
+  <div class="tmaplegend"><span>fewer sound destinations</span><span class="grad"></span><span>more</span>
+    <span style="margin-left:auto" class="small">area ∝ sites · Σ = <span class="num" id="tmap-sum"></span></span></div>
+  <div id="tdetail"><span class="small">Tap a subsystem tile above to drill in.</span></div>
+</div></section>
+
+<section id="map"><div class="wrap">
+  <div class="sechead"><h3>Origin → pattern → outcome</h3></div>
+  <p class="secsub">Root cause → pattern → outcome, for every site. Click a node to trace it. The Zig-port and
+  callback unsafe mostly ends up green (replaceable); the FFI unsafe mostly ends up blue (stays, behind a
+  wrapper).</p>
+  <div class="scrollx"><svg id="flowsvg" viewBox="0 0 1124 760" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <div class="scrollhint">← scroll →</div>
+  <div class="flownote" id="flownote">Click an origin, pattern, or destination to trace where its sites flow.</div>
+</div></section>
+
+<section id="fine"><div class="wrap">
+  <div class="sechead"><h3>What the count is made of</h3></div>
+  <p class="secsub">Six facts about the 13,365 that the raw number doesn't carry.</p>
+  <div class="fine" id="finelist"></div>
+</div></section>
+
+<section id="ledger"><div class="wrap">
+  <div class="sechead"><h3>15 patterns, five outcomes</h3></div>
+  <p class="secsub">A site counts as <b>fixed</b> only if safe code can't cause undefined behavior in a release
+  build. Debug assertions don't qualify; neither do wrappers that just hide the invariant. Everything else stays
+  unsafe — the blue and gray. The four largest patterns were measured per site; the rest are estimates
+  over verified counts. Expand a row for examples and the fix.</p>
+  <div class="ledgerbar"><span class="small">Σ = 13,365 · sorted by size · the bar is each pattern's outcome split</span><span class="xall" id="xall">Collapse all</span></div>
+  <div class="ledger" id="ledger-rows"></div>
+</div></section>
+
+<section id="evidence"><div class="wrap">
+  <div class="sechead"><h3>Three questions, answered per site</h3></div>
+  <p class="secsub">Three questions determine most of the ledger, and each one means reading the site. Two
+  classifiers answered independently; an adjudicator settled every disagreement against the code. Where agreement
+  was low, trust the number less. Each pass samples by its own membership rule — the first read 3,531 sites, of
+  which 2,750 are the two largest patterns in the ledger — raw *mut Self state machines and &self→&mut casts. The measured ratios apply to the ledger counts, and the steps
+  consume the ledger cells.</p>
+  <div class="passes" id="passes"></div>
+</div></section>
+
+<section id="plan"><div class="wrap">
+  <div class="sechead"><h3>Soundness first, then the count</h3></div>
+  <p class="secsub">Eight steps. The first fixes the safe functions that are wrong today — no change to the count. The rest move
+  <b>~9,300 sites</b> to safe code and leave <b>~4,000</b> unsafe. Per-pattern figures are in the ledger above.</p>
+  <div class="scrollx"><svg id="wfsvg" viewBox="0 0 1124 360" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <div class="scrollhint">← scroll →</div>
+  <div id="projlist" style="margin-top:26px"></div>
+</div></section>
+
+<section id="methodology"><div class="wrap">
+  <div class="sechead"><h3>How this was measured, and what to be skeptical of</h3></div>
+  <p class="secsub">A snapshot of the Rust port at commit <code>3eb0fda021</code>, before it has shipped in a
+  release — counts and line numbers move as the code does. The ground truth is one <code>ripgrep</code> command
+  anyone can re-run, and everything above reconciles to it.</p>
+  <div class="pipeline" id="pipeline"></div>
+  <table class="recon" id="recon"></table>
+  <div class="caveat" id="caveat"></div>
+  <p class="small" style="margin-top:16px;line-height:1.8">Measurement command: <code id="measure-cmd"></code><br>
+  Raw data: per-group census reports and adversarial reviews (102 + 102 files) · per-site classifications from
+  both independent classifiers plus the adjudicated final (33 × 3 files) · the flagged safe-function list with
+  claimed trigger sequences · the synthesis documents this page renders.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <span>Bun (<code>oven-sh/bun</code>) · Rust workspace @ <code>3eb0fda021</code> · May 21, 2026 · all 46 file:line citations verified against this commit</span>
+  <span>raw data: 102 census reports · 102 reviews · 99 per-site classification files</span>
+</div></footer>
+
+<script>
+const DATA = {"total":13365,"comparison":[{"name":"rusty_v8","what":"Deno's V8 binding crate","sites":1750,"loc":45562,"commit":"80e204d","hl":false,"density":38.4},{"name":"Bun","what":"one workspace: bindings to JavaScriptCore, uWebSockets, uSockets, libuv, BoringSSL, c-ares, zlib, libarchive, lol-html, and mimalloc, plus all the runtime logic on top","sites":13365,"loc":977693,"commit":"3eb0fda","hl":true,"density":13.7},{"name":"Deno + rusty_v8","what":"the runtime plus its engine binding","sites":4852,"loc":576773,"commit":"0b6cd36 + 80e204d","hl":false,"density":8.4},{"name":"tokio","what":"async runtime; FFI surface is syscalls","sites":1133,"loc":174117,"commit":"2a05f36","hl":false,"density":6.5},{"name":"Deno","what":"main repo only; the engine binding lives in rusty_v8 and much of the runtime is TypeScript","sites":3102,"loc":531211,"commit":"0b6cd36","hl":false,"density":5.8},{"name":"wasmtime","what":"implements its own engine in Rust; almost no C++ to bind","sites":3989,"loc":728138,"commit":"a9a2712","hl":false,"density":5.5},{"name":"Bun, after this plan","what":"roughly 4,000 remaining sites over the same line count","sites":4085,"loc":977693,"commit":"","hl":true,"projected":true,"density":4.2}],"meta":{"title":"Where unsafe lives in Bun — global taxonomy & reduction roadmap","ground_truth_total":13365,"files_with_unsafe":774,"groups":51,"accounted_for":13365,"unaccounted_for":0,"measurement":"rg -o -e 'unsafe \\{' -e 'unsafe fn' -e 'unsafe extern' -e 'unsafe impl' -e 'unsafe trait' --type rust -g '!vendor/*' src/","method":"51 subsystem groups x 2 independent finders x 2 adversarial reviewers; finder A's per-pattern partition (which sums to exactly 13,365) is the accounting basis; reviewer corrections applied to reducibility and API mechanics; 1,344 verdicts confirmed, 298 corrected, 0 refuted","comment_false_positive_sites":233,"headline":{"perf_optimization_pct":3.1,"zig_port_legacy_sites":4530,"ffi_boundary_sites":3986,"finder_claimed_reducible":8235,"review_adjusted_reducible":7560,"irreducible_floor_estimate":"5600-6000"}},"origins":{"zig-port-legacy":4530,"ffi-boundary":3986,"event-loop-callback":1413,"lifetime-workaround":1411,"already-wrapped":715,"platform-syscall":490,"perf-optimization":412,"gc-interaction":408},"subsystems":{"bun-core-rest":514,"sys-crates-b":437,"sys":426,"webcore-blob":416,"uws":409,"collections-ptr":382,"node-fs":370,"server":364,"sys-crates-a":363,"bun-alloc":355,"socket-rest":352,"bundler-core":338,"bake":327,"websocket":319,"shell":310,"jsc-hooks":304,"io":303,"dns":300,"misc-small":297,"cli-run-test":280,"jsc-values":275,"jsc-vm":275,"crash-exe-sourcemap":274,"install-pm":271,"jsc-ipc-modules":267,"bundler-linker":263,"install-rest":262,"ffi-napi":259,"jsc-rest":247,"resolver":239,"sql-crypto-valkey":237,"http-client":235,"cli-rest":232,"threading-event-loop":231,"api-misc":216,"test-runner":213,"image":209,"webcore-fetch-s3":209,"node-rest":186,"parsers-ast":180,"runtime-root":179,"timer":172,"api-cron":163,"spawn":157,"api-rewriter-h2":137,"css":126,"webcore-rest":117,"socket-windows":108,"bun-core-strings":97,"install-windows-shim":86,"api-spawn":77},"subsystem_labels":{"jsc-hooks":"Rust→C++ JSC hook layer","jsc-vm":"VirtualMachine / event loop / workers","jsc-ipc-modules":"IPC / console / module loading","jsc-values":"JSValue / ArrayBuffer bindings","jsc-rest":"JSC glue (Debugger, AbortSignal, …)","sys":"syscall wrappers","dns":"DNS (c-ares)","bake":"bake / DevServer / HMR","webcore-blob":"Blob / file IO / sinks","webcore-fetch-s3":"fetch / S3 / Request / Response","webcore-rest":"streams / encoding","websocket":"WebSocket client / deflate","api-cron":"Bun.Cron","api-rewriter-h2":"HTMLRewriter / HTTP2","api-spawn":"Bun.spawn bindings","api-misc":"BunObject / Terminal / Transpiler","node-fs":"node:fs + watchers","node-rest":"node:os / zlib / buffer / net","cli-run-test":"bun run / bun test","cli-rest":"CLI commands","socket-windows":"Windows named pipes","socket-rest":"TCP/TLS/UDP sockets","runtime-root":"dispatch / hw_exports / webview","bundler-core":"bundler core","bundler-linker":"bundler linker","server":"Bun.serve","install-pm":"package manager core","install-rest":"install: lockfile / network / tarballs","install-windows-shim":"Windows bin shim","shell":"Bun shell","bun-alloc":"allocators","uws":"uSockets FFI","resolver":"module resolver","io":"PipeWriter / PipeReader","test-runner":"bun:test runner","image":"image codecs","collections-ptr":"collections + smart pointers","bun-core-strings":"string types (WTF interop)","bun-core-rest":"bun_core: util / fmt / Global","http-client":"HTTP client","timer":"timers","spawn":"process spawning","threading-event-loop":"thread pool / event loop","ffi-napi":"bun:ffi + N-API","sys-crates-a":"FFI crates: libuv / c-ares / simdutf","sys-crates-b":"FFI crates: zlib / boringssl / archive","crash-exe-sourcemap":"crash handler / Mach-O / sourcemaps","css":"CSS parser","parsers-ast":"JS parser / AST / TOML","sql-crypto-valkey":"SQL / crypto / valkey","misc-small":"router / glob / semver / misc"},"subsystem_families":{"sys":[{"family":"ffi-c-calls","n":326},{"family":"uninit-buffers","n":25},{"family":"slice-fabrication","n":21},{"family":"type-punning","n":12},{"family":"marker-traits","n":11},{"family":"raw-self-state-machines","n":8},{"family":"callback-ctx-recovery","n":8},{"family":"artifacts-and-residue","n":8},{"family":"global-singletons","n":7}],"sys-crates-b":[{"family":"ffi-c-calls","n":307},{"family":"slice-fabrication","n":33},{"family":"callback-ctx-recovery","n":28},{"family":"raw-self-state-machines","n":27},{"family":"type-punning","n":15},{"family":"uninit-buffers","n":10},{"family":"artifacts-and-residue","n":9},{"family":"marker-traits","n":4},{"family":"unchecked-perf","n":4}],"uws":[{"family":"ffi-c-calls","n":279},{"family":"callback-ctx-recovery","n":43},{"family":"slice-fabrication","n":31},{"family":"artifacts-and-residue","n":25},{"family":"raw-self-state-machines","n":8},{"family":"parent-back-pointers","n":8},{"family":"marker-traits","n":6},{"family":"type-punning","n":5},{"family":"manual-heap-refcount","n":4}],"sys-crates-a":[{"family":"ffi-c-calls","n":249},{"family":"marker-traits","n":50},{"family":"callback-ctx-recovery","n":34},{"family":"slice-fabrication","n":13},{"family":"manual-heap-refcount","n":8},{"family":"artifacts-and-residue","n":7},{"family":"type-punning","n":2}],"image":[{"family":"ffi-c-calls","n":169},{"family":"manual-heap-refcount","n":13},{"family":"slice-fabrication","n":7},{"family":"jsc-bindings","n":7},{"family":"parent-back-pointers","n":5},{"family":"callback-ctx-recovery","n":3},{"family":"uninit-buffers","n":3},{"family":"artifacts-and-residue","n":2}],"sql-crypto-valkey":[{"family":"ffi-c-calls","n":111},{"family":"raw-self-state-machines","n":58},{"family":"callback-ctx-recovery","n":14},{"family":"parent-back-pointers","n":10},{"family":"type-punning","n":10},{"family":"artifacts-and-residue","n":9},{"family":"slice-fabrication","n":8},{"family":"uninit-buffers","n":6},{"family":"interior-mutability","n":4},{"family":"unchecked-perf","n":4},{"family":"jsc-bindings","n":2},{"family":"marker-traits","n":1}],"bun-alloc":[{"family":"ffi-c-calls","n":100},{"family":"uninit-buffers","n":67},{"family":"marker-traits","n":58},{"family":"callback-ctx-recovery","n":38},{"family":"artifacts-and-residue","n":26},{"family":"raw-self-state-machines","n":25},{"family":"manual-heap-refcount","n":16},{"family":"type-punning","n":13},{"family":"lifetime-erasure","n":12}],"ffi-napi":[{"family":"ffi-c-calls","n":99},{"family":"raw-self-state-machines","n":31},{"family":"callback-ctx-recovery","n":28},{"family":"jsc-bindings","n":27},{"family":"manual-heap-refcount","n":24},{"family":"slice-fabrication","n":17},{"family":"lifetime-erasure","n":8},{"family":"marker-traits","n":8},{"family":"type-punning","n":8},{"family":"artifacts-and-residue","n":5},{"family":"parent-back-pointers","n":4}],"bun-core-rest":[{"family":"uninit-buffers","n":98},{"family":"ffi-c-calls","n":96},{"family":"interior-mutability","n":68},{"family":"manual-heap-refcount","n":64},{"family":"slice-fabrication","n":45},{"family":"parent-back-pointers","n":33},{"family":"global-singletons","n":31},{"family":"raw-self-state-machines","n":20},{"family":"artifacts-and-residue","n":19},{"family":"callback-ctx-recovery","n":15},{"family":"unchecked-perf","n":14},{"family":"type-punning","n":11}],"jsc-ipc-modules":[{"family":"ffi-c-calls","n":95},{"family":"parent-back-pointers","n":71},{"family":"raw-self-state-machines","n":22},{"family":"manual-heap-refcount","n":19},{"family":"callback-ctx-recovery","n":17},{"family":"lifetime-erasure","n":11},{"family":"slice-fabrication","n":11},{"family":"uninit-buffers","n":8},{"family":"artifacts-and-residue","n":6},{"family":"jsc-bindings","n":4},{"family":"marker-traits","n":3}],"node-fs":[{"family":"ffi-c-calls","n":93},{"family":"manual-heap-refcount","n":70},{"family":"parent-back-pointers","n":67},{"family":"raw-self-state-machines","n":22},{"family":"callback-ctx-recovery","n":20},{"family":"slice-fabrication","n":19},{"family":"marker-traits","n":15},{"family":"interior-mutability","n":15},{"family":"jsc-bindings","n":14},{"family":"artifacts-and-residue","n":11},{"family":"lifetime-erasure","n":10},{"family":"uninit-buffers","n":8},{"family":"type-punning","n":6}],"jsc-rest":[{"family":"ffi-c-calls","n":90},{"family":"manual-heap-refcount","n":62},{"family":"callback-ctx-recovery","n":20},{"family":"artifacts-and-residue","n":20},{"family":"jsc-bindings","n":17},{"family":"raw-self-state-machines","n":10},{"family":"marker-traits","n":9},{"family":"uninit-buffers","n":8},{"family":"slice-fabrication","n":8},{"family":"type-punning","n":3}],"misc-small":[{"family":"ffi-c-calls","n":89},{"family":"slice-fabrication","n":42},{"family":"raw-self-state-machines","n":30},{"family":"global-singletons","n":25},{"family":"lifetime-erasure","n":21},{"family":"artifacts-and-residue","n":20},{"family":"parent-back-pointers","n":19},{"family":"callback-ctx-recovery","n":17},{"family":"unchecked-perf","n":14},{"family":"marker-traits","n":8},{"family":"uninit-buffers","n":4},{"family":"type-punning","n":4},{"family":"interior-mutability","n":3},{"family":"jsc-bindings","n":1}],"node-rest":[{"family":"ffi-c-calls","n":74},{"family":"raw-self-state-machines","n":28},{"family":"jsc-bindings","n":22},{"family":"manual-heap-refcount","n":15},{"family":"type-punning","n":14},{"family":"slice-fabrication","n":13},{"family":"artifacts-and-residue","n":12},{"family":"callback-ctx-recovery","n":8}],"crash-exe-sourcemap":[{"family":"raw-self-state-machines","n":90},{"family":"ffi-c-calls","n":71},{"family":"slice-fabrication","n":35},{"family":"uninit-buffers","n":17},{"family":"jsc-bindings","n":14},{"family":"lifetime-erasure","n":9},{"family":"marker-traits","n":9},{"family":"global-singletons","n":9},{"family":"manual-heap-refcount","n":7},{"family":"type-punning","n":4},{"family":"parent-back-pointers","n":3},{"family":"callback-ctx-recovery","n":2},{"family":"unchecked-perf","n":2},{"family":"artifacts-and-residue","n":2}],"jsc-values":[{"family":"manual-heap-refcount","n":71},{"family":"ffi-c-calls","n":60},{"family":"type-punning","n":34},{"family":"jsc-bindings","n":32},{"family":"callback-ctx-recovery","n":22},{"family":"slice-fabrication","n":19},{"family":"raw-self-state-machines","n":12},{"family":"artifacts-and-residue","n":11},{"family":"marker-traits","n":8},{"family":"interior-mutability","n":6}],"bundler-core":[{"family":"raw-self-state-machines","n":72},{"family":"ffi-c-calls","n":58},{"family":"lifetime-erasure","n":51},{"family":"parent-back-pointers","n":35},{"family":"callback-ctx-recovery","n":34},{"family":"manual-heap-refcount","n":22},{"family":"artifacts-and-residue","n":22},{"family":"global-singletons","n":20},{"family":"marker-traits","n":11},{"family":"interior-mutability","n":7},{"family":"uninit-buffers","n":6}],"socket-rest":[{"family":"callback-ctx-recovery","n":154},{"family":"ffi-c-calls","n":57},{"family":"manual-heap-refcount","n":42},{"family":"raw-self-state-machines","n":32},{"family":"slice-fabrication","n":18},{"family":"artifacts-and-residue","n":16},{"family":"jsc-bindings","n":14},{"family":"type-punning","n":9},{"family":"uninit-buffers","n":4},{"family":"global-singletons","n":4},{"family":"parent-back-pointers","n":2}],"webcore-blob":[{"family":"raw-self-state-machines","n":109},{"family":"manual-heap-refcount","n":71},{"family":"callback-ctx-recovery","n":62},{"family":"ffi-c-calls","n":52},{"family":"lifetime-erasure","n":49},{"family":"jsc-bindings","n":16},{"family":"interior-mutability","n":16},{"family":"parent-back-pointers","n":12},{"family":"slice-fabrication","n":11},{"family":"artifacts-and-residue","n":11},{"family":"type-punning","n":7}],"spawn":[{"family":"raw-self-state-machines","n":53},{"family":"ffi-c-calls","n":52},{"family":"callback-ctx-recovery","n":28},{"family":"uninit-buffers","n":13},{"family":"global-singletons","n":9},{"family":"parent-back-pointers","n":2}],"io":[{"family":"parent-back-pointers","n":123},{"family":"ffi-c-calls","n":51},{"family":"raw-self-state-machines","n":48},{"family":"manual-heap-refcount","n":23},{"family":"callback-ctx-recovery","n":22},{"family":"type-punning","n":15},{"family":"artifacts-and-residue","n":9},{"family":"uninit-buffers","n":7},{"family":"global-singletons","n":3},{"family":"marker-traits","n":2}],"dns":[{"family":"raw-self-state-machines","n":93},{"family":"callback-ctx-recovery","n":71},{"family":"ffi-c-calls","n":49},{"family":"parent-back-pointers","n":36},{"family":"interior-mutability","n":31},{"family":"manual-heap-refcount","n":11},{"family":"jsc-bindings","n":5},{"family":"marker-traits","n":2},{"family":"artifacts-and-residue","n":2}],"runtime-root":[{"family":"callback-ctx-recovery","n":67},{"family":"ffi-c-calls","n":45},{"family":"parent-back-pointers","n":24},{"family":"raw-self-state-machines","n":16},{"family":"manual-heap-refcount","n":14},{"family":"jsc-bindings","n":9},{"family":"unchecked-perf","n":2},{"family":"artifacts-and-residue","n":2}],"api-misc":[{"family":"ffi-c-calls","n":43},{"family":"raw-self-state-machines","n":41},{"family":"parent-back-pointers","n":28},{"family":"manual-heap-refcount","n":24},{"family":"lifetime-erasure","n":22},{"family":"interior-mutability","n":16},{"family":"callback-ctx-recovery","n":14},{"family":"jsc-bindings","n":8},{"family":"unchecked-perf","n":6},{"family":"slice-fabrication","n":4},{"family":"marker-traits","n":4},{"family":"artifacts-and-residue","n":4},{"family":"type-punning","n":2}],"threading-event-loop":[{"family":"marker-traits","n":45},{"family":"parent-back-pointers","n":40},{"family":"ffi-c-calls","n":35},{"family":"raw-self-state-machines","n":34},{"family":"callback-ctx-recovery","n":25},{"family":"manual-heap-refcount","n":17},{"family":"artifacts-and-residue","n":14},{"family":"interior-mutability","n":11},{"family":"uninit-buffers","n":6},{"family":"type-punning","n":4}],"test-runner":[{"family":"raw-self-state-machines","n":47},{"family":"ffi-c-calls","n":35},{"family":"jsc-bindings","n":31},{"family":"parent-back-pointers","n":28},{"family":"interior-mutability","n":21},{"family":"global-singletons","n":20},{"family":"callback-ctx-recovery","n":10},{"family":"manual-heap-refcount","n":10},{"family":"artifacts-and-residue","n":5},{"family":"uninit-buffers","n":4},{"family":"lifetime-erasure","n":2}],"http-client":[{"family":"manual-heap-refcount","n":41},{"family":"lifetime-erasure","n":36},{"family":"ffi-c-calls","n":33},{"family":"raw-self-state-machines","n":25},{"family":"parent-back-pointers","n":23},{"family":"slice-fabrication","n":17},{"family":"callback-ctx-recovery","n":16},{"family":"marker-traits","n":14},{"family":"global-singletons","n":11},{"family":"artifacts-and-residue","n":9},{"family":"uninit-buffers","n":4},{"family":"type-punning","n":3},{"family":"unchecked-perf","n":3}],"install-rest":[{"family":"parent-back-pointers","n":45},{"family":"raw-self-state-machines","n":31},{"family":"uninit-buffers","n":31},{"family":"ffi-c-calls","n":28},{"family":"type-punning","n":27},{"family":"marker-traits","n":26},{"family":"manual-heap-refcount","n":18},{"family":"callback-ctx-recovery","n":13},{"family":"lifetime-erasure","n":12},{"family":"global-singletons","n":12},{"family":"artifacts-and-residue","n":10},{"family":"unchecked-perf","n":9}],"websocket":[{"family":"callback-ctx-recovery","n":98},{"family":"raw-self-state-machines","n":88},{"family":"manual-heap-refcount","n":46},{"family":"ffi-c-calls","n":27},{"family":"parent-back-pointers","n":26},{"family":"jsc-bindings","n":21},{"family":"slice-fabrication","n":9},{"family":"artifacts-and-residue","n":4}],"server":[{"family":"manual-heap-refcount","n":83},{"family":"raw-self-state-machines","n":60},{"family":"callback-ctx-recovery","n":57},{"family":"parent-back-pointers","n":56},{"family":"jsc-bindings","n":34},{"family":"uninit-buffers","n":28},{"family":"ffi-c-calls","n":23},{"family":"type-punning","n":12},{"family":"lifetime-erasure","n":6},{"family":"artifacts-and-residue","n":3},{"family":"interior-mutability","n":2}],"cli-rest":[{"family":"raw-self-state-machines","n":91},{"family":"global-singletons","n":26},{"family":"ffi-c-calls","n":22},{"family":"slice-fabrication","n":17},{"family":"jsc-bindings","n":17},{"family":"parent-back-pointers","n":16},{"family":"lifetime-erasure","n":16},{"family":"artifacts-and-residue","n":11},{"family":"uninit-buffers","n":9},{"family":"callback-ctx-recovery","n":7}],"cli-run-test":[{"family":"raw-self-state-machines","n":113},{"family":"parent-back-pointers","n":38},{"family":"lifetime-erasure","n":30},{"family":"ffi-c-calls","n":21},{"family":"callback-ctx-recovery","n":21},{"family":"global-singletons","n":18},{"family":"manual-heap-refcount","n":10},{"family":"jsc-bindings","n":10},{"family":"uninit-buffers","n":8},{"family":"slice-fabrication","n":4},{"family":"type-punning","n":3},{"family":"artifacts-and-residue","n":3},{"family":"interior-mutability","n":1}],"bake":[{"family":"raw-self-state-machines","n":122},{"family":"parent-back-pointers","n":59},{"family":"callback-ctx-recovery","n":29},{"family":"uninit-buffers","n":26},{"family":"ffi-c-calls","n":21},{"family":"manual-heap-refcount","n":17},{"family":"artifacts-and-residue","n":17},{"family":"lifetime-erasure","n":15},{"family":"interior-mutability","n":14},{"family":"jsc-bindings","n":7}],"webcore-rest":[{"family":"slice-fabrication","n":23},{"family":"artifacts-and-residue","n":23},{"family":"callback-ctx-recovery","n":19},{"family":"ffi-c-calls","n":17},{"family":"manual-heap-refcount","n":17},{"family":"raw-self-state-machines","n":9},{"family":"uninit-buffers","n":5},{"family":"parent-back-pointers","n":4}],"install-pm":[{"family":"parent-back-pointers","n":71},{"family":"manual-heap-refcount","n":63},{"family":"lifetime-erasure","n":41},{"family":"callback-ctx-recovery","n":32},{"family":"ffi-c-calls","n":16},{"family":"type-punning","n":16},{"family":"global-singletons","n":9},{"family":"unchecked-perf","n":8},{"family":"artifacts-and-residue","n":8},{"family":"uninit-buffers","n":7}],"jsc-vm":[{"family":"raw-self-state-machines","n":74},{"family":"callback-ctx-recovery","n":62},{"family":"parent-back-pointers","n":44},{"family":"manual-heap-refcount","n":32},{"family":"ffi-c-calls","n":16},{"family":"artifacts-and-residue","n":13},{"family":"slice-fabrication","n":11},{"family":"lifetime-erasure","n":8},{"family":"unchecked-perf","n":6},{"family":"jsc-bindings","n":4},{"family":"marker-traits","n":3},{"family":"uninit-buffers","n":2}],"socket-windows":[{"family":"raw-self-state-machines","n":37},{"family":"callback-ctx-recovery","n":32},{"family":"ffi-c-calls","n":15},{"family":"manual-heap-refcount","n":12},{"family":"uninit-buffers","n":9},{"family":"artifacts-and-residue","n":3}],"api-rewriter-h2":[{"family":"raw-self-state-machines","n":78},{"family":"jsc-bindings","n":16},{"family":"ffi-c-calls","n":13},{"family":"artifacts-and-residue","n":9},{"family":"manual-heap-refcount","n":6},{"family":"lifetime-erasure","n":5},{"family":"marker-traits","n":4},{"family":"callback-ctx-recovery","n":3},{"family":"global-singletons","n":2},{"family":"slice-fabrication","n":1}],"resolver":[{"family":"raw-self-state-machines","n":120},{"family":"lifetime-erasure","n":26},{"family":"artifacts-and-residue","n":25},{"family":"parent-back-pointers","n":24},{"family":"ffi-c-calls","n":13},{"family":"global-singletons","n":12},{"family":"uninit-buffers","n":11},{"family":"marker-traits","n":6},{"family":"slice-fabrication","n":2}],"timer":[{"family":"raw-self-state-machines","n":57},{"family":"callback-ctx-recovery","n":32},{"family":"global-singletons","n":27},{"family":"parent-back-pointers","n":26},{"family":"manual-heap-refcount","n":15},{"family":"ffi-c-calls","n":11},{"family":"jsc-bindings","n":2},{"family":"artifacts-and-residue","n":2}],"bun-core-strings":[{"family":"manual-heap-refcount","n":23},{"family":"uninit-buffers","n":15},{"family":"ffi-c-calls","n":10},{"family":"jsc-bindings","n":9},{"family":"type-punning","n":9},{"family":"slice-fabrication","n":7},{"family":"unchecked-perf","n":7},{"family":"callback-ctx-recovery","n":6},{"family":"marker-traits","n":6},{"family":"raw-self-state-machines","n":3},{"family":"artifacts-and-residue","n":2}],"install-windows-shim":[{"family":"raw-self-state-machines","n":41},{"family":"slice-fabrication","n":16},{"family":"ffi-c-calls","n":9},{"family":"callback-ctx-recovery","n":5},{"family":"uninit-buffers","n":4},{"family":"type-punning","n":4},{"family":"artifacts-and-residue","n":3},{"family":"global-singletons","n":2},{"family":"marker-traits","n":1},{"family":"unchecked-perf","n":1}],"api-spawn":[{"family":"raw-self-state-machines","n":33},{"family":"callback-ctx-recovery","n":12},{"family":"manual-heap-refcount","n":8},{"family":"ffi-c-calls","n":6},{"family":"jsc-bindings","n":6},{"family":"interior-mutability","n":5},{"family":"artifacts-and-residue","n":5},{"family":"lifetime-erasure","n":2}],"api-cron":[{"family":"callback-ctx-recovery","n":115},{"family":"raw-self-state-machines","n":33},{"family":"ffi-c-calls","n":6},{"family":"jsc-bindings","n":5},{"family":"manual-heap-refcount","n":3},{"family":"artifacts-and-residue","n":1}],"webcore-fetch-s3":[{"family":"manual-heap-refcount","n":64},{"family":"callback-ctx-recovery","n":35},{"family":"jsc-bindings","n":26},{"family":"lifetime-erasure","n":23},{"family":"parent-back-pointers","n":15},{"family":"uninit-buffers","n":13},{"family":"raw-self-state-machines","n":10},{"family":"artifacts-and-residue","n":8},{"family":"interior-mutability","n":6},{"family":"ffi-c-calls","n":5},{"family":"marker-traits","n":4}],"parsers-ast":[{"family":"raw-self-state-machines","n":30},{"family":"parent-back-pointers","n":22},{"family":"manual-heap-refcount","n":20},{"family":"artifacts-and-residue","n":20},{"family":"jsc-bindings","n":16},{"family":"marker-traits","n":16},{"family":"lifetime-erasure","n":14},{"family":"callback-ctx-recovery","n":13},{"family":"type-punning","n":12},{"family":"uninit-buffers","n":8},{"family":"unchecked-perf","n":5},{"family":"ffi-c-calls","n":4}],"jsc-hooks":[{"family":"raw-self-state-machines","n":201},{"family":"callback-ctx-recovery","n":31},{"family":"jsc-bindings","n":25},{"family":"global-singletons","n":17},{"family":"type-punning","n":10},{"family":"lifetime-erasure","n":9},{"family":"manual-heap-refcount","n":4},{"family":"ffi-c-calls","n":3},{"family":"interior-mutability","n":3},{"family":"artifacts-and-residue","n":1}],"shell":[{"family":"callback-ctx-recovery","n":65},{"family":"raw-self-state-machines","n":57},{"family":"interior-mutability","n":52},{"family":"parent-back-pointers","n":40},{"family":"jsc-bindings","n":23},{"family":"manual-heap-refcount","n":20},{"family":"marker-traits","n":16},{"family":"lifetime-erasure","n":15},{"family":"uninit-buffers","n":8},{"family":"artifacts-and-residue","n":8},{"family":"ffi-c-calls","n":3},{"family":"unchecked-perf","n":2},{"family":"type-punning","n":1}],"collections-ptr":[{"family":"raw-self-state-machines","n":104},{"family":"artifacts-and-residue","n":90},{"family":"uninit-buffers","n":89},{"family":"parent-back-pointers","n":25},{"family":"slice-fabrication","n":23},{"family":"manual-heap-refcount","n":22},{"family":"lifetime-erasure","n":21},{"family":"marker-traits","n":8}],"bundler-linker":[{"family":"raw-self-state-machines","n":52},{"family":"parent-back-pointers","n":48},{"family":"lifetime-erasure","n":47},{"family":"callback-ctx-recovery","n":31},{"family":"jsc-bindings","n":27},{"family":"artifacts-and-residue","n":15},{"family":"interior-mutability","n":14},{"family":"marker-traits","n":11},{"family":"uninit-buffers","n":8},{"family":"type-punning","n":6},{"family":"manual-heap-refcount","n":4}],"css":[{"family":"raw-self-state-machines","n":50},{"family":"lifetime-erasure","n":48},{"family":"parent-back-pointers","n":11},{"family":"type-punning","n":6},{"family":"artifacts-and-residue","n":6},{"family":"uninit-buffers","n":3},{"family":"marker-traits","n":2}]},"top_files":[{"file":"src/runtime/jsc_hooks.rs","sites":272},{"file":"src/sys/lib.rs","sites":238},{"file":"src/runtime/dns_jsc/dns.rs","sites":204},{"file":"src/runtime/bake/DevServer.rs","sites":182},{"file":"src/runtime/webcore/Blob.rs","sites":149},{"file":"src/http_jsc/websocket_client/WebSocketUpgradeClient.rs","sites":145},{"file":"src/runtime/api/cron.rs","sites":133},{"file":"src/runtime/node/node_fs.rs","sites":127},{"file":"src/jsc/VirtualMachine.rs","sites":127},{"file":"src/bun_alloc/lib.rs","sites":112}],"families":[{"id":"ffi-c-calls","n":1,"name":"Foreign C/C++ calls & the extern import surface","total":3107,"pct":23.2,"categories":["ffi-extern-call","ffi-binding-call","platform-syscall","other:fn-pointer-types"],"origins":{"ffi-boundary":2594,"platform-syscall":381,"zig-port-legacy":47,"lifetime-workaround":46,"event-loop-callback":20,"already-wrapped":19},"strategies":{"irreducible-centralize":1403,"irreducible-keep":624,"use-existing-api":582,"new-zero-cost-api":389,"mechanical-rewrite":109},"by_subsystem":{"sys":326,"sys-crates-b":307,"uws":279,"sys-crates-a":249,"image":169,"sql-crypto-valkey":111,"bun-alloc":100,"ffi-napi":99,"bun-core-rest":96,"jsc-ipc-modules":95,"node-fs":93,"jsc-rest":90,"misc-small":89,"node-rest":74,"crash-exe-sourcemap":71,"jsc-values":60,"bundler-core":58,"socket-rest":57,"webcore-blob":52,"spawn":52,"io":51,"dns":49,"runtime-root":45,"api-misc":43,"threading-event-loop":35,"test-runner":35,"http-client":33,"install-rest":28,"websocket":27,"server":23,"cli-rest":22,"cli-run-test":21,"bake":21,"webcore-rest":17,"install-pm":16,"jsc-vm":16,"socket-windows":15,"api-rewriter-h2":13,"resolver":13,"timer":11,"bun-core-strings":10,"install-windows-shim":9,"api-spawn":6,"api-cron":6,"webcore-fetch-s3":5,"parsers-ast":4,"jsc-hooks":3,"shell":3},"claimed_reducible":1389,"realistic_reducible":1300,"examples":["src/sys/lib.rs:2459 — check_p!(unsafe { libc::unlink(path.as_ptr()) })","src/libarchive/lib.rs:172 — archive_read_support_format_tar(self.as_mut_ptr())","src/libuv_sys/libuv.rs:1440 — uv_timer_start(self, ...) on &mut Timer","src/uws_sys/SocketGroup.rs:46 — VTable::on_data: Option<unsafe extern fn(...)>","src/bun_alloc/basic.rs:16 — mi_free_checked, the central checked-free wrapper"],"proposed_api":"Rust-2024 `unsafe extern { pub safe fn f(h: &mut OpaqueZst, out: &mut MaybeUninit<T>, data: BorrowedSlice<'_, u8>) }` redeclarations + per-library RAII handle newtypes (OwnedX509, owning ComPtr<T>, JpegHandle) + grow bun_sys with the missing syscall wrappers. Existing in-tree base: ~150 already-converted libarchive/lolhtml safe fn decls, bun_sys::safe_libc, opaque_ffi! ZSTs.","shape":"one C call per `unsafe` block — `check_p!(unsafe { libc::unlink(path.as_ptr()) })` (`src/sys/lib.rs:2459`), `unsafe { archive_read_support_format_tar(self.as_mut_ptr()) }` (`src/libarchive/lib.rs:172`), `uv_timer_start(self, ...)` (`src/libuv_sys/libuv.rs:1440`), `tj3DecompressHeader` / `spng_decode_image` (image), `EVP_DigestUpdate` (sql-crypto) — plus the `unsafe extern` import blocks that declare them and the `unsafe extern \"C\" fn(...)` callback types in type position (`src/uws_sys/SocketGroup.rs:46`, `src/boringssl_sys/boringssl.rs:605`).","precedent":"~150 libarchive/lolhtml declarations already converted to `pub safe fn f(a: &mut archive, ...)`; `bun_sys::safe_libc`; `opaque_ffi!` ZSTs; `safe fn tcgetattr(fd, t: &mut MaybeUninit<termios>)`. The call instruction itself is the irreducible floor (~1,700–1,800 sites stay, centralized in `*_sys` crates).","n_patterns":124,"top_patterns":[{"group":"sys-crates-b","name":"thin opaque-handle FFI call wrappers (one C call per unsafe block)","count":163,"reducible":75,"origin":"ffi-boundary","strategy":"use-existing-api"},{"group":"sys","name":"posix libc / raw-syscall invocation with args from live safe borrows","count":158,"reducible":120,"origin":"ffi-boundary","strategy":"use-existing-api"},{"group":"sys-crates-a","name":"thin FFI call over a live handle / slice / stack out-param","count":149,"reducible":40,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"bun-alloc","name":"allocator-primitive FFI calls + thin unsafe wrappers + extern decls","count":100,"reducible":20,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"uws","name":"uws-slice-ffi-call: uSockets/uWS C-shim call passing Rust slice/CStr/struct as raw (ptr,len)","count":94,"reducible":75,"origin":"ffi-boundary","strategy":"new-zero-cost-api"},{"group":"image","name":"vendored codec library FFI calls (libspng / turbojpeg3 / libwebp[mux,demux])","count":67,"reducible":45,"origin":"ffi-boundary","strategy":"irreducible-centralize"}]},{"id":"raw-self-state-machines","n":2,"name":"Raw *mut Self state machines & re-entrancy reborrows","total":2455,"pct":18.4,"categories":["raw-ptr-deref"],"origins":{"zig-port-legacy":1284,"lifetime-workaround":522,"ffi-boundary":211,"already-wrapped":155,"event-loop-callback":123,"gc-interaction":68,"platform-syscall":47,"perf-optimization":45},"strategies":{"new-zero-cost-api":764,"mechanical-rewrite":753,"use-existing-api":630,"irreducible-centralize":283,"irreducible-keep":25},"by_subsystem":{"jsc-hooks":201,"bake":122,"resolver":120,"cli-run-test":113,"webcore-blob":109,"collections-ptr":104,"dns":93,"cli-rest":91,"crash-exe-sourcemap":90,"websocket":88,"api-rewriter-h2":78,"jsc-vm":74,"bundler-core":72,"server":60,"sql-crypto-valkey":58,"timer":57,"shell":57,"spawn":53,"bundler-linker":52,"css":50,"io":48,"test-runner":47,"api-misc":41,"install-windows-shim":41,"socket-windows":37,"threading-event-loop":34,"api-spawn":33,"api-cron":33,"socket-rest":32,"install-rest":31,"ffi-napi":31,"parsers-ast":30,"misc-small":30,"node-rest":28,"sys-crates-b":27,"http-client":25,"bun-alloc":25,"node-fs":22,"jsc-ipc-modules":22,"bun-core-rest":20,"runtime-root":16,"jsc-values":12,"webcore-fetch-s3":10,"jsc-rest":10,"webcore-rest":9,"sys":8,"uws":8,"bun-core-strings":3},"claimed_reducible":1907,"realistic_reducible":1750,"examples":["src/runtime/jsc_hooks.rs:618 — unsafe { (*vm).is_in_preload = true } (119 per-field VM projections in one file)","src/runtime/cli/pack_command.rs:233 — two aliased &mut into PackageManager/Log via raw provenance root","src/runtime/api/cron.rs:347 — finish(): reborrow used right up to the heap::take that frees the allocation"],"proposed_api":"The h2_frame_parser recipe: `Rc<T>`/`bun_ptr::RefPtr<T>` + per-field `Cell<T>` so receivers become `&self`. For Copy scalars this is unconditionally sound and compiles to the same load/store. For non-Copy fields the proposed `JsCell::with_mut` shrinks the `&mut` window to one closure — a real auditability win — but it is **not** a safe abstraction: `with_mut` has no re-entrancy check, the safe `get()` can alias its `&mut`, and its `Sync` impl is self-described as \"a lie to the type system\" (`src/jsc/JSCell.rs:105-177`). The aliasing obligation is relocated, not discharged. Landed precedents: the CronJob class (`cron.rs:1404`), HiveArray `&self`+`UnsafeCell` (PR #30876).","shape":"an async object addressed as `*mut Self` because (a) a nested call may free it, (b) JS re-entry would alias a `&mut self`, or (c) the borrow checker can't split the struct. Every method opens with `let s = unsafe { &mut *this }` or does per-field `unsafe { (*vm).is_in_preload = true }` (`src/runtime/jsc_hooks.rs:618` — 119 such sites on the VM alone). Includes the `*mut PackageManager`/`*mut Log` split-borrow laundering in the CLI (`src/runtime/cli/pack_command.rs:233`), the resolver's `*mut DirEntry` cache slots, the SoA column split-borrows in the linker, and the `*mut Stream` map in the h2 parser.","precedent":"h2_frame_parser 60→7 sites via `Rc<Stream>`+`Cell` (prototyped on a branch, not yet on main); the `CronJob` class (`src/runtime/api/cron.rs:1404`) is the landed in-tree template; HiveArray's `&self`+`UnsafeCell` refactor (PR #30876).","n_patterns":122,"top_patterns":[{"group":"jsc-hooks","name":"raw *mut VirtualMachine per-field projection (re-entrancy idiom)","count":119,"reducible":90,"origin":"lifetime-workaround","strategy":"mechanical-rewrite"},{"group":"collections-ptr","name":"intrusive refcount core: `*mut T` -> embedded RefCount projection (ref_count.rs)","count":84,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-centralize"},{"group":"bake","name":"borrowck-workaround raw self-reborrow / Zig-defer place projection","count":73,"reducible":60,"origin":"zig-port-legacy","strategy":"mechanical-rewrite"},{"group":"websocket","name":"short-lived (*this).field re-deref dance inside raw-self callback bodies","count":71,"reducible":65,"origin":"lifetime-workaround","strategy":"mechanical-rewrite"},{"group":"server","name":"static-route objects addressed by *mut Self through the route table","count":60,"reducible":54,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"webcore-blob","name":"*mut Self async state machines: per-field (*this).x because a nested call may free self","count":59,"reducible":50,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"}],"correction":"Original text claimed JS re-entry would alias \"legally\" — it does not. See tier 2."},{"id":"callback-ctx-recovery","n":3,"name":"C-callback userdata -> typed reference recovery","total":1538,"pct":11.5,"categories":["callback-context-ptr","other:vtables"],"origins":{"event-loop-callback":1072,"zig-port-legacy":299,"ffi-boundary":87,"lifetime-workaround":62,"platform-syscall":18},"strategies":{"use-existing-api":455,"new-zero-cost-api":449,"irreducible-centralize":438,"mechanical-rewrite":189,"irreducible-keep":7},"by_subsystem":{"socket-rest":154,"api-cron":115,"websocket":98,"dns":71,"runtime-root":67,"shell":65,"webcore-blob":62,"jsc-vm":62,"server":57,"uws":43,"bun-alloc":38,"webcore-fetch-s3":35,"bundler-core":34,"sys-crates-a":34,"timer":32,"install-pm":32,"socket-windows":32,"jsc-hooks":31,"bundler-linker":31,"bake":29,"ffi-napi":28,"spawn":28,"sys-crates-b":28,"threading-event-loop":25,"io":22,"jsc-values":22,"cli-run-test":21,"node-fs":20,"jsc-rest":20,"webcore-rest":19,"jsc-ipc-modules":17,"misc-small":17,"http-client":16,"bun-core-rest":15,"sql-crypto-valkey":14,"api-misc":14,"install-rest":13,"parsers-ast":13,"api-spawn":12,"test-runner":10,"sys":8,"node-rest":8,"cli-rest":7,"bun-core-strings":6,"install-windows-shim":5,"api-rewriter-h2":3,"image":3,"crash-exe-sourcemap":2},"claimed_reducible":1131,"realistic_reducible":1050,"examples":["src/runtime/socket/uws_handlers.rs:235 — unsafe fn on_open(_this: *mut Self, ...) (9 trait decls x N impls)","src/http_jsc/websocket_client/WebSocketUpgradeClient.rs:156 — pub const ON_OPEN: unsafe fn(*mut Self, Socket<SSL>)","src/runtime/api/cron.rs:82 — unsafe fn maybe_finished(this: *mut Self) + 87 forwarding calls into may-free-this methods"],"proposed_api":"Typed callback registration that pairs registration and recovery: uws::ExtSlot<T>/RouteUserdata<T>/on_aborted_typed::<T: AnyRefCounted>, bun_threading::ScheduledTask<C> (Box in -> &mut C on worker -> Box out), bun_event_loop::OwnedCallback<T> for libuv req.data. The trampoline takes a ScopedRef<T> (+1) so the handler body becomes safe &self. Existing base: bun_uws_sys::thunk::ExtSlot<T>::owner_mut(), impl_timer_owner!.","shape":"a `void*` userdata registered with uws / libuv / c-ares / the work pool / a JS promise reaction comes back in an `extern \"C\"` callback and is cast to `&mut Self`; the handler entry points are `unsafe fn on_open(this: *mut Self, ...)` (`src/runtime/socket/uws_handlers.rs:235` — 9 trait declarations × N impls), the dispatch tables are `pub const ON_OPEN: unsafe fn(*mut Self, ...)` consts (`src/http_jsc/websocket_client/WebSocketUpgradeClient.rs:156`), and every state transition is a forwarding call into a method that may free `this` (`src/runtime/api/cron.rs:82` `unsafe fn maybe_finished(this: *mut Self)` — 87 forwarding calls in cron alone).","precedent":"`bun_uws_sys::thunk::ExtSlot<T>::owner_mut()` already makes the non-self-freeing half of socket-rest safe; `impl_timer_owner!`; `bun_ptr::callback_ctx`.","n_patterns":77,"top_patterns":[{"group":"api-cron","name":"forwarding calls into may-free-`this` state-machine methods","count":87,"reducible":87,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"socket-rest","name":"uws ext-slot owner recovery and raw-ptr dispatch","count":71,"reducible":55,"origin":"event-loop-callback","strategy":"use-existing-api"},{"group":"dns","name":"async DNS request lifecycle: heap::into_raw ctx -> C completion callback -> heap::take","count":71,"reducible":60,"origin":"event-loop-callback","strategy":"mechanical-rewrite"},{"group":"shell","name":"WorkPool task trampoline + per-builtin async task lifecycle (heap::into_raw -> container_of -> heap::take)","count":65,"reducible":55,"origin":"event-loop-callback","strategy":"new-zero-cost-api"},{"group":"webcore-blob","name":"async completion-callback context recovery (uv req.data / work-pool task / opaque void* -> Self)","count":62,"reducible":50,"origin":"event-loop-callback","strategy":"irreducible-centralize"},{"group":"websocket","name":"raw-self re-entrant dispatch (Self::terminate/fail/handle_*/process_response forwarding)","count":57,"reducible":55,"origin":"event-loop-callback","strategy":"mechanical-rewrite"}]},{"id":"parent-back-pointers","n":4,"name":"Parent / owner back-pointers held across the event loop","total":1143,"pct":8.6,"categories":["parent-back-pointer"],"origins":{"zig-port-legacy":782,"lifetime-workaround":228,"event-loop-callback":74,"already-wrapped":35,"gc-interaction":16,"ffi-boundary":8},"strategies":{"use-existing-api":633,"irreducible-centralize":220,"new-zero-cost-api":172,"mechanical-rewrite":112,"irreducible-keep":6},"by_subsystem":{"io":123,"install-pm":71,"jsc-ipc-modules":71,"node-fs":67,"bake":59,"server":56,"bundler-linker":48,"install-rest":45,"jsc-vm":44,"shell":40,"threading-event-loop":40,"cli-run-test":38,"dns":36,"bundler-core":35,"bun-core-rest":33,"api-misc":28,"test-runner":28,"timer":26,"websocket":26,"collections-ptr":25,"resolver":24,"runtime-root":24,"http-client":23,"parsers-ast":22,"misc-small":19,"cli-rest":16,"webcore-fetch-s3":15,"webcore-blob":12,"css":11,"sql-crypto-valkey":10,"uws":8,"image":5,"webcore-rest":4,"ffi-napi":4,"crash-exe-sourcemap":3,"socket-rest":2,"spawn":2},"claimed_reducible":794,"realistic_reducible":750,"examples":["src/runtime/server/RequestContext.rs:573 — fn server<'r>(&self) -> &'r ThisServer (unbounded lifetime BACKREF deref)","src/install/isolated_install/Installer.rs:149 — manager_mut(&self) -> &'a mut PackageManager via &mut *self.manager","src/jsc/VirtualMachine.rs:688 — as_mut(): &mut *Self::get_mut_ptr() (the whole-VM escape hatch)","src/io/PipeWriter.rs:287 — unsafe fn get_buffer<'a>(this: *mut Self) -> &'a [u8] (parent-vtable contract)"],"proposed_api":"bun_ptr::ParentRef<T> (mortal parent, debug liveness generation) / BackRef<T> (immortal, safe Deref) as the field type; rewrite the io impl_*_parent! macros to emit safe fn(&self) impls for borrow=shared parents and a scoped RefPtr guard for borrow=ptr parents; parent mutation goes through interior-mutable fields, never &mut Parent.","shape":"a child object stores `*mut Parent` (or recovers it via `container_of`/`impl_field_parent!`) and dereferences it later — possibly after the parent moved or died. `fn server<'r>(&self) -> &'r ThisServer` with an unbounded lifetime (`src/runtime/server/RequestContext.rs:573`), `manager_mut(&self) -> &'a mut PackageManager` (`src/install/isolated_install/Installer.rs:149`), the io crate's macro-stamped `impl_streaming_writer_parent!` vtables (63 sites in one macro family), the `VirtualMachine::as_mut(&self) -> &mut Self` escape hatch (`src/jsc/VirtualMachine.rs:688`).","precedent":"","n_patterns":57,"top_patterns":[{"group":"io","name":"macro-stamped parent-vtable impls (impl_streaming_writer_parent! / impl_buffered_writer_parent! / impl_buffered_reader_parent!)","count":63,"reducible":0,"origin":"zig-port-legacy","strategy":"irreducible-centralize"},{"group":"install-pm","name":"manager aliasing split-borrow via raw provenance root (&mut PackageManager + &mut manager.field passed to one callee)","count":60,"reducible":50,"origin":"zig-port-legacy","strategy":"mechanical-rewrite"},{"group":"server","name":"server / VM / DevServer back-pointer deref","count":56,"reducible":40,"origin":"lifetime-workaround","strategy":"use-existing-api"},{"group":"node-fs","name":"watcher object graph held as raw *mut (PathWatcher / FSWatcher / managers / FSEvents loop)","count":47,"reducible":38,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"install-rest","name":"PackageManager/Lockfile/Installer back-pointer reborrow (BACKREF)","count":45,"reducible":30,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"jsc-vm","name":"VM singleton & VM-owned-field reborrow","count":44,"reducible":30,"origin":"zig-port-legacy","strategy":"use-existing-api"}]},{"id":"manual-heap-refcount","n":5,"name":"Manual heap lifecycle & intrusive refcount plumbing","total":1135,"pct":8.5,"categories":["manual-alloc","other:refcount-plumbing"],"origins":{"zig-port-legacy":591,"ffi-boundary":174,"gc-interaction":117,"event-loop-callback":105,"already-wrapped":72,"perf-optimization":48,"lifetime-workaround":28},"strategies":{"use-existing-api":526,"new-zero-cost-api":280,"mechanical-rewrite":181,"irreducible-centralize":148},"by_subsystem":{"server":83,"webcore-blob":71,"jsc-values":71,"node-fs":70,"bun-core-rest":64,"webcore-fetch-s3":64,"install-pm":63,"jsc-rest":62,"websocket":46,"socket-rest":42,"http-client":41,"jsc-vm":32,"api-misc":24,"ffi-napi":24,"io":23,"bun-core-strings":23,"collections-ptr":22,"bundler-core":22,"parsers-ast":20,"shell":20,"jsc-ipc-modules":19,"install-rest":18,"webcore-rest":17,"bake":17,"threading-event-loop":17,"bun-alloc":16,"timer":15,"node-rest":15,"runtime-root":14,"image":13,"socket-windows":12,"dns":11,"cli-run-test":10,"test-runner":10,"api-spawn":8,"sys-crates-a":8,"crash-exe-sourcemap":7,"api-rewriter-h2":6,"jsc-hooks":4,"bundler-linker":4,"uws":4,"api-cron":3},"claimed_reducible":739,"realistic_reducible":700,"examples":["src/bun_core/string/PathString.rs:146 — init_owned/deinit_owned/heap::take: the owned PathString hand-balances its allocation with no Drop","src/runtime/socket/Listener.rs:344 — &mut *this right after heap::into_raw(Box::new(Listener{..})); :860 the matching heap::take","src/runtime/webcore/Blob.rs:1655 — unsafe { FileSink::deref(file_sink) } (one of 13 manual derefs on the +1)","src/jsc/webcore_types.rs:1175 — StoreRef::drop -> Store::deref(self.ptr), a hand-rolled intrusive refcount"],"proposed_api":"Give bun_ptr::RefPtr<T> an owning RAII form (it deliberately has NO Drop impl today and leaks the ref on drop, src/ptr/ref_count.rs:765-781). Add OwnedRef<T> (Drop = deref), safe RefPtr::from_ref(&T), T::ref_guard(&self) -> ScopedRef. Constructors return Box<T>/RefPtr<T>; the destroy target is generated by the CellRefCounted derive (default already does Box::from_raw).","shape":"`bun_core::heap::into_raw(Box::new(..))` → configure through the raw pointer → hand to C/JS/the work pool → `heap::take(this)` exactly once at end of life; plus manual intrusive refcounts: `unsafe { Self::deref(this) }` / `ref_()` / `ScopedRef::new` on raw pointers (`src/runtime/webcore/Blob.rs:1655` — 13 manual `FileSink::deref` calls; `src/http_jsc/websocket_client/WebSocketUpgradeClient.rs:1690` — a double deref with a comment explaining which ref each one releases).","precedent":"`#[derive(bun_ptr::CellRefCounted)]` + `#[ref_count(destroy = ...)]` already generate the plumbing; `CookieMapRef` is the existing Drop-newtype template.","n_patterns":58,"top_patterns":[{"group":"server","name":"intrusive refcount + manual heap box lifecycle through raw pointers","count":83,"reducible":60,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"bun-core-rest","name":"Refcount and heap-handoff plumbing (derive-generated AnyRefCounted impls, ExternalShared<T>, heap::take/destroy)","count":64,"reducible":4,"origin":"already-wrapped","strategy":"irreducible-centralize"},{"group":"node-fs","name":"leaked-box async task lifecycle (heap::into_raw -> work pool / event loop -> heap::take)","count":54,"reducible":40,"origin":"event-loop-callback","strategy":"new-zero-cost-api"},{"group":"webcore-blob","name":"intrusive refcount ops on raw pointers (FileSink::deref / StoreRef::retained / CellRefCounted::deref / memfd ref_)","count":43,"reducible":38,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"socket-rest","name":"manual heap object lifecycle: heap::into_raw, deref of the fresh/owned allocation, heap::take","count":42,"reducible":28,"origin":"zig-port-legacy","strategy":"mechanical-rewrite"},{"group":"jsc-values","name":"C++-owned handle / intrusive-refcount lifecycle (adopt, ref, deref, destroy)","count":41,"reducible":18,"origin":"gc-interaction","strategy":"use-existing-api"}]},{"id":"uninit-buffers","n":6,"name":"Uninitialized memory & out-param buffers","total":582,"pct":4.4,"categories":["uninit-memory"],"origins":{"zig-port-legacy":296,"perf-optimization":194,"ffi-boundary":89,"lifetime-workaround":3},"strategies":{"use-existing-api":224,"new-zero-cost-api":183,"irreducible-keep":85,"mechanical-rewrite":69,"irreducible-centralize":21},"by_subsystem":{"bun-core-rest":98,"collections-ptr":89,"bun-alloc":67,"install-rest":31,"server":28,"bake":26,"sys":25,"crash-exe-sourcemap":17,"bun-core-strings":15,"webcore-fetch-s3":13,"spawn":13,"resolver":11,"sys-crates-b":10,"cli-rest":9,"socket-windows":9,"bundler-linker":8,"parsers-ast":8,"cli-run-test":8,"node-fs":8,"shell":8,"jsc-rest":8,"jsc-ipc-modules":8,"install-pm":7,"io":7,"bundler-core":6,"sql-crypto-valkey":6,"threading-event-loop":6,"webcore-rest":5,"socket-rest":4,"http-client":4,"install-windows-shim":4,"test-runner":4,"misc-small":4,"css":3,"image":3,"jsc-vm":2},"claimed_reducible":325,"realistic_reducible":300,"examples":["src/bun_alloc/baby_vec.rs:164 — push: ptr.add(len).write(value), a hand-rolled Vec","src/collections/hive_array.rs:246 — alloc(): p.write(value) into a freshly claimed MaybeUninit slot","src/bun_core/lib.rs:2971 — unsafe impl Zeroable for libc::kevent (one impl, N safe zeroed() call sites)"],"proposed_api":"WriteCursor<'_, T> over &mut [MaybeUninit<u8>] with commit(n) as the only way to grow len (mirrors std BorrowedBuf); finish the HiveArray alloc()->HiveBox / claim()->HiveSlot linear-token migration; ffi::zeroed::<T: Zeroable>() for C out-params (already the right shape); Option<T> instead of MaybeUninit<T> pool slots.","shape":"`MaybeUninit<T>` storage with a used-counter gate (`src/bun_alloc/baby_vec.rs:164`), `Vec::set_len` after a raw write, `mem::zeroed()` for C POD out-params (`unsafe impl Zeroable for libc::kevent`, `src/bun_core/lib.rs:2971`), spare-capacity fills, and Zig `undefined`-field late initialization (`Box<MaybeUninit<DevServer>>` per-field construction in bake).","precedent":"","n_patterns":50,"top_patterns":[{"group":"bun-alloc","name":"hand-rolled containers over MaybeUninit storage (BabyVec, BSSList/StringList/Map, OverflowList, bump cursors, init_at)","count":67,"reducible":30,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"bun-core-rest","name":"Zeroable marker impls + mem::zeroed for C POD out-params","count":61,"reducible":1,"origin":"ffi-boundary","strategy":"irreducible-keep"},{"group":"collections-ptr","name":"Hive pool slot lifecycle (HiveArray/Fallback MaybeUninit slots + HiveRef pool-backed refcount)","count":42,"reducible":12,"origin":"perf-optimization","strategy":"use-existing-api"},{"group":"collections-ptr","name":"Vec raw-parts & uninit-tail manipulation (VecExt/ByteVecExt set_len family)","count":34,"reducible":12,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"bun-core-rest","name":"Uninitialized-buffer fill: Vec set_len / spare_capacity, BoundedArray, PathBuffer::uninit","count":30,"reducible":10,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"server","name":"HiveArray pool slot claim, in-place init, and *mut ctx threading across JS re-entry","count":28,"reducible":20,"origin":"perf-optimization","strategy":"use-existing-api"}]},{"id":"lifetime-erasure","n":7,"name":"Lifetime erasure to 'static for self-referential storage","total":569,"pct":4.3,"categories":["lifetime-extension"],"origins":{"zig-port-legacy":292,"lifetime-workaround":272,"perf-optimization":5},"strategies":{"new-zero-cost-api":243,"use-existing-api":131,"mechanical-rewrite":117,"irreducible-centralize":57,"irreducible-keep":21},"by_subsystem":{"bundler-core":51,"webcore-blob":49,"css":48,"bundler-linker":47,"install-pm":41,"http-client":36,"cli-run-test":30,"resolver":26,"webcore-fetch-s3":23,"api-misc":22,"collections-ptr":21,"misc-small":21,"cli-rest":16,"bake":15,"shell":15,"parsers-ast":14,"install-rest":12,"bun-alloc":12,"jsc-ipc-modules":11,"node-fs":10,"jsc-hooks":9,"crash-exe-sourcemap":9,"ffi-napi":8,"jsc-vm":8,"server":6,"api-rewriter-h2":5,"api-spawn":2,"test-runner":2},"claimed_reducible":388,"realistic_reducible":350,"examples":["src/bun_core/string/PathString.rs:107 — PathString::init packs str.as_ptr()+len into one u128, erasing the borrow's lifetime; slice() (:90) reconstructs a &[u8] with an unbounded lifetime","src/bundler/bundle_v2.rs:1592 — unsafe { bun_ptr::detach_lifetime(s) } (the documented arena-erasure convention)","src/runtime/webcore/Blob.rs:2691 — unsafe fn to_string_with_bytes<const LIFETIME: Lifetime>(&self, global, raw_bytes: *mut [u8])"],"proposed_api":"Store offsets, not pointers: an Interned newtype minted only by the pinned arena owner; (u32,u32) ranges + a safe re-derive method against the owning buffer; an owning enum BlobBytes { StoreView(StoreRef, Range), Owned(Box<[u8]>) } (two words, identical codegen); thread 'bump through the CSS AST.","shape":"`unsafe { bun_ptr::detach_lifetime(s) }` (`src/bundler/bundle_v2.rs:1592`) to store an arena-owned slice in a struct that outlives the borrow's name (but not the arena); `unsafe fn to_string_with_bytes<const LIFETIME: Lifetime>(&self, global, raw_bytes: *mut [u8])` (`src/runtime/webcore/Blob.rs:2691`); `Sink<'static>` stored in struct fields.","precedent":"","n_patterns":35,"top_patterns":[{"group":"webcore-blob","name":"*mut [u8] Lifetime-parameterized byte views + ownership transfer to JSC externals","count":49,"reducible":40,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"bundler-core","name":"arena/owner lifetime erasure (detach_lifetime / interned_slice / into_static / for_worker transmute)","count":49,"reducible":40,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"http-client","name":"lifetime erasure for self-referential storage (detach_lifetime / erase_lifetime / append_raw / seat)","count":36,"reducible":24,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"css","name":"src_str / detach_lifetime: source-or-arena &[u8] laundered to &'static [u8]","count":34,"reducible":34,"origin":"zig-port-legacy","strategy":"mechanical-rewrite"},{"group":"install-pm","name":"leaked-singleton decoupled-lifetime accessors (get(), log_mut, env_mut, BACKREF accessors, cache-directory family)","count":30,"reducible":18,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"cli-run-test","name":"lifetime erasure to 'static for process-lifetime / never-returning-frame data","count":30,"reducible":12,"origin":"lifetime-workaround","strategy":"use-existing-api"}]},{"id":"slice-fabrication","n":8,"name":"Slice fabrication from raw parts (C-owned buffers, sentinel-terminated strings)","total":485,"pct":3.6,"categories":["slice-from-raw-parts"],"origins":{"ffi-boundary":335,"zig-port-legacy":100,"lifetime-workaround":32,"perf-optimization":10,"gc-interaction":8},"strategies":{"irreducible-centralize":198,"new-zero-cost-api":135,"use-existing-api":130,"mechanical-rewrite":12,"irreducible-keep":10},"by_subsystem":{"bun-core-rest":45,"misc-small":42,"crash-exe-sourcemap":35,"sys-crates-b":33,"uws":31,"collections-ptr":23,"webcore-rest":23,"sys":21,"node-fs":19,"jsc-values":19,"socket-rest":18,"http-client":17,"ffi-napi":17,"cli-rest":17,"install-windows-shim":16,"sys-crates-a":13,"node-rest":13,"webcore-blob":11,"jsc-vm":11,"jsc-ipc-modules":11,"websocket":9,"sql-crypto-valkey":8,"jsc-rest":8,"bun-core-strings":7,"image":7,"api-misc":4,"cli-run-test":4,"resolver":2,"api-rewriter-h2":1},"claimed_reducible":285,"realistic_reducible":260,"examples":["src/bun_core/string/PathString.rs:90 — slice() does from_raw_parts over the ptr/len unpacked from the backing int; :102 slice_assume_z does the NUL-terminated variant","src/bun_core/util.rs:321 — ZStr::from_raw, the root fat-pointer constructor; :440 from_c_ptr (strlen-then-from_raw funnel)"],"proposed_api":"#[repr(C)] Span<T>/bun_ptr::RawSlice<T> as the extern-fn parameter and struct-field type with the single audited unsafe inside as_slice() (same two registers); ZStr::from_terminated_range(&buf, start..end) and PathBuffer::terminate(&mut self, len) -> &ZStr constructors that write the NUL and return the sentinel slice in one call.","shape":"`slice::from_raw_parts(ptr, len)` over a C-owned buffer, a NUL-terminated string re-materialized as `&ZStr`, argv/environ block ingestion, `(ptr, len)` field pairs on `#[repr(C)]` structs shared with C++.","precedent":"","n_patterns":37,"top_patterns":[{"group":"bun-core-rest","name":"Sentinel-terminated string views and argv/env block ingestion (ZStr/WStr/CStr/RawSlice)","count":45,"reducible":9,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"sys-crates-b","name":"borrowing C-owned buffers & strings (from_raw_parts / ffi::cstr / ZStr::from_c_ptr)","count":33,"reducible":12,"origin":"ffi-boundary","strategy":"new-zero-cost-api"},{"group":"crash-exe-sourcemap","name":"StringPointer offset-carved 'static subslices over embedded blobs","count":29,"reducible":26,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"misc-small","name":"NUL-terminated ZStr/WStr construction from owned buffer","count":24,"reducible":20,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"webcore-rest","name":"ptr+len -> slice materialization of C++/JSC-owned buffers","count":23,"reducible":11,"origin":"ffi-boundary","strategy":"use-existing-api"},{"group":"sys","name":"slice / NUL-terminated-string reconstruction from raw parts","count":21,"reducible":12,"origin":"ffi-boundary","strategy":"use-existing-api"}]},{"id":"jsc-bindings","n":9,"name":"JSC / C++ binding calls & GC ownership transfer","total":471,"pct":3.5,"categories":["jsc-binding-call","gc-interaction"],"origins":{"ffi-boundary":270,"gc-interaction":195,"event-loop-callback":6},"strategies":{"irreducible-centralize":178,"use-existing-api":159,"new-zero-cost-api":113,"mechanical-rewrite":21},"by_subsystem":{"server":34,"jsc-values":32,"test-runner":31,"bundler-linker":27,"ffi-napi":27,"webcore-fetch-s3":26,"jsc-hooks":25,"shell":23,"node-rest":22,"websocket":21,"cli-rest":17,"jsc-rest":17,"webcore-blob":16,"parsers-ast":16,"api-rewriter-h2":16,"socket-rest":14,"node-fs":14,"crash-exe-sourcemap":14,"cli-run-test":10,"runtime-root":9,"bun-core-strings":9,"api-misc":8,"bake":7,"image":7,"api-spawn":6,"api-cron":5,"dns":5,"jsc-vm":4,"jsc-ipc-modules":4,"timer":2,"sql-crypto-valkey":2,"misc-small":1},"claimed_reducible":329,"realistic_reducible":300,"examples":["src/runtime/server/RequestContext.rs:317 — unsafe fn as_response(value: JSValue) -> Option<&'static mut Response>","src/jsc/JSValue.rs:1659 — Bun__JSValue__call(global, self, this, args.len(), args.as_ptr())"],"proposed_api":"Extend the #[bun_jsc::host_fn]/cppbind/generate-classes codegen to emit safe &JSGlobalObject/&CallFrame wrappers for every entry point; FfiSlice<'a,T> by-value extern params so the decl becomes safe fn; a checked downcast_ref::<T>() -> Option<&T> on the JsClass tagged-pointer union; one generated unsafe ownership-transfer point per class.","shape":"hand-rolled `jsc_host_abi!` entry shims that deref `*mut JSGlobalObject` / `*mut CallFrame`; `to_js_ptr(obj, global)` ownership transfers (+1 ref moves into the C++ wrapper, released by `finalize`); `value.as_::<T>()` downcasts to `&'static mut T`; ptr/len calls into JSC bindings from live Rust slices.","precedent":"","n_patterns":39,"top_patterns":[{"group":"server","name":"JsClass::from_js / as_response downcast to &mut T","count":34,"reducible":30,"origin":"gc-interaction","strategy":"use-existing-api"},{"group":"jsc-values","name":"ptr/len FFI calls into JSC bindings from live Rust slices or out-params","count":32,"reducible":30,"origin":"ffi-boundary","strategy":"new-zero-cost-api"},{"group":"bundler-linker","name":"JSC module-record builder FFI shims (analyze_jsc)","count":27,"reducible":3,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"ffi-napi","name":"JSC/C++ binding calls through locally-declared extern thunks","count":27,"reducible":27,"origin":"ffi-boundary","strategy":"use-existing-api"},{"group":"jsc-hooks","name":"JSC heap-cell / C++ object deref (global, promise, exception, as_<T>() payloads, WTF strings, inspector handles)","count":25,"reducible":20,"origin":"gc-interaction","strategy":"use-existing-api"},{"group":"shell","name":"VM / event-loop / GC-wrapper singleton raw pointers","count":23,"reducible":8,"origin":"gc-interaction","strategy":"irreducible-centralize"}]},{"id":"marker-traits","n":10,"name":"Marker-trait assertions (Send/Sync, Allocator, layout-prefix, Linked)","total":371,"pct":2.8,"categories":["unsafe-trait-impl","send-sync-assertion"],"origins":{"zig-port-legacy":143,"ffi-boundary":93,"already-wrapped":80,"lifetime-workaround":37,"perf-optimization":14,"gc-interaction":4},"strategies":{"irreducible-keep":160,"irreducible-centralize":113,"mechanical-rewrite":50,"use-existing-api":28,"new-zero-cost-api":16,"already-wrapped":4},"by_subsystem":{"bun-alloc":58,"sys-crates-a":50,"threading-event-loop":45,"install-rest":26,"parsers-ast":16,"shell":16,"node-fs":15,"http-client":14,"sys":11,"bundler-linker":11,"bundler-core":11,"crash-exe-sourcemap":9,"jsc-rest":9,"collections-ptr":8,"ffi-napi":8,"jsc-values":8,"misc-small":8,"resolver":6,"bun-core-strings":6,"uws":6,"api-misc":4,"api-rewriter-h2":4,"webcore-fetch-s3":4,"sys-crates-b":4,"jsc-vm":3,"jsc-ipc-modules":3,"io":2,"css":2,"dns":2,"sql-crypto-valkey":1,"install-windows-shim":1},"claimed_reducible":168,"realistic_reducible":120,"examples":["src/bun_alloc/MimallocArena.rs:624 — unsafe impl Allocator for &MimallocArena","src/bun_core/util.rs:2323 — unsafe impl<T: ?Sized> Sync for RacyCell<T> (the unconditional lie)"],"proposed_api":"Derive macros that also emit the compile-time evidence: #[derive(UvHandle)] emitting offset_of! const asserts, #[derive(Linked)] #[linked(field = next)], forward_allocator!(Target => Inner) for pure forwarders. Delete the Send/Sync impls already covered by blanket impls. The rest are irreducible proof obligations.","shape":"`unsafe impl Send/Sync` (sometimes an unconditional lie — `unsafe impl<T: ?Sized> Sync for RacyCell<T>`, `src/bun_core/util.rs:2323`), `unsafe impl Allocator/GlobalAlloc` (mandated by the trait), `unsafe impl UvHandle for Pipe` (C struct inheritance by layout prefix), `unsafe impl Linked` (intrusive list membership).","precedent":"","n_patterns":42,"top_patterns":[{"group":"bun-alloc","name":"core::alloc::Allocator / GlobalAlloc trait impls and mandated unsafe signatures","count":45,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-keep"},{"group":"sys-crates-a","name":"layout-prefix marker traits and impls (UvHandle / UvStream / UvReq)","count":33,"reducible":30,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"threading-event-loop","name":"UnboundedQueue intrusive MPSC: unsafe Node/Linked trait protocol","count":29,"reducible":14,"origin":"zig-port-legacy","strategy":"irreducible-centralize"},{"group":"sys-crates-a","name":"Zeroable POD marker impls","count":17,"reducible":17,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"threading-event-loop","name":"Send/Sync assertions on lock-guarded / atomic-protocol types","count":16,"reducible":3,"origin":"zig-port-legacy","strategy":"irreducible-keep"},{"group":"install-rest","name":"layout-assertion unsafe trait/impl markers (AssertNoUninitializedPadding, bytemuck::NoUninit)","count":15,"reducible":0,"origin":"zig-port-legacy","strategy":"irreducible-keep"}]},{"id":"interior-mutability","n":11,"name":"&self -> &mut interior-mutability casts for JS-reentrant state","total":295,"pct":2.2,"categories":["interior-mut-cast"],"origins":{"lifetime-workaround":123,"zig-port-legacy":86,"already-wrapped":79,"perf-optimization":7},"strategies":{"use-existing-api":126,"irreducible-centralize":96,"new-zero-cost-api":70,"mechanical-rewrite":3},"by_subsystem":{"bun-core-rest":68,"shell":52,"dns":31,"test-runner":21,"webcore-blob":16,"api-misc":16,"node-fs":15,"bundler-linker":14,"bake":14,"threading-event-loop":11,"bundler-core":7,"webcore-fetch-s3":6,"jsc-values":6,"api-spawn":5,"sql-crypto-valkey":4,"jsc-hooks":3,"misc-small":3,"server":2,"cli-run-test":1},"claimed_reducible":158,"realistic_reducible":150,"examples":["src/runtime/shell/subproc.rs:110 — buffer_mut: (&RefPtr<StaticPipeWriter>) -> &mut, single-threaded contract","src/bun_core/atomic_cell.rs:97 — AtomicCell load/store width dispatch (already the centralized safe API)"],"proposed_api":"Per-field `Cell<T>` for Copy scalars (sound, identical codegen). For non-Copy fields the audit proposed `JsCell<T>` \"with a debug re-entrancy assert\" — **that assert does not exist** (`src/jsc/JSCell.rs:173-177` is `f(unsafe { &mut *self.0.get() })` with no check, and `get()` is a safe fn that can alias the `&mut`). Until `JsCell` grows a real (at minimum debug) borrow flag, converting these sites moves the obligation into a safe-looking wrapper. Precedent for the sound version: the HiveArray `&self`+`UnsafeCell` refactor (PR #30876), which gates access through linear tokens rather than trusting the caller.","shape":"a type held behind a shared handle (Arc, RefPtr, JS wrapper) needs field mutation, so the code mints `&mut` from `&self` via `UnsafeCell::get()` or a `*mut` round-trip (`src/runtime/shell/subproc.rs:110` `buffer_mut: (&RefPtr<StaticPipeWriter>) -> &mut`). \"Single-threaded so it's fine\" excuses a data race, not aliasing UB.","precedent":"the HiveArray `&self`+`UnsafeCell` refactor (PR #30876); the canonical `feedback_single_thread_not_no_ub` rule.","n_patterns":20,"top_patterns":[{"group":"bun-core-rest","name":"AtomicCell<T>/Atom width-dispatch type punning","count":68,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-centralize"},{"group":"shell","name":"Arc/RefPtr used as single-threaded intrusive refcount; payload mutated via raw pointer or UnsafeCell","count":46,"reducible":38,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"dns","name":"Resolver intrusive refcount + JsCell interior-mutability projection","count":31,"reducible":18,"origin":"lifetime-workaround","strategy":"use-existing-api"},{"group":"test-runner","name":"BunTest UnsafeCell re-entrant self access (raw `*mut BunTest` point-derefs spanning JS re-entry)","count":21,"reducible":18,"origin":"lifetime-workaround","strategy":"new-zero-cost-api"},{"group":"webcore-blob","name":"interior-mutability cell projections (UnsafeCell reader, JsCell::get_mut, raw *mut Vec reader_buffer)","count":16,"reducible":13,"origin":"lifetime-workaround","strategy":"new-zero-cost-api"},{"group":"api-misc","name":"&mut-through-&self JsCell projections + borrowck-workaround raw reborrows (Transpiler)","count":16,"reducible":10,"origin":"lifetime-workaround","strategy":"new-zero-cost-api"}],"correction":"Original text described a debug re-entrancy assert that is not in the code."},{"id":"type-punning","n":12,"name":"Type punning (transmute, repr(C) unions, bindgen tagged unions)","total":287,"pct":2.1,"categories":["transmute-cast","union-access"],"origins":{"zig-port-legacy":163,"ffi-boundary":106,"lifetime-workaround":9,"platform-syscall":9},"strategies":{"irreducible-centralize":93,"mechanical-rewrite":83,"use-existing-api":72,"new-zero-cost-api":33,"irreducible-keep":6},"by_subsystem":{"jsc-values":34,"install-rest":27,"install-pm":16,"io":15,"sys-crates-b":15,"node-rest":14,"bun-alloc":13,"sys":12,"parsers-ast":12,"server":12,"bun-core-rest":11,"jsc-hooks":10,"sql-crypto-valkey":10,"socket-rest":9,"bun-core-strings":9,"ffi-napi":8,"webcore-blob":7,"bundler-linker":6,"node-fs":6,"css":6,"uws":5,"install-windows-shim":4,"crash-exe-sourcemap":4,"threading-event-loop":4,"misc-small":4,"http-client":3,"cli-run-test":3,"jsc-rest":3,"sys-crates-a":2,"api-misc":2,"shell":1},"claimed_reducible":188,"realistic_reducible":170,"examples":["src/jsc/generated.rs:256 — ext.assume_init_ref() after a bindgen out-param convert returns true"],"proposed_api":"Have the C++ ExternTraits codegen emit #[repr(C, u8)]-compatible layouts so the Rust side declares a real enum and tag dispatch is a safe match; standardize POD byte-views on bytemuck::NoUninit + #[derive(AssertNoUninitializedPadding)]; bun_ptr::TaggedPointerUnion::downcast_ref::<T>().","shape":"Two shapes: `transmute`/pointer casts between layout-compatible types (158 sites) and reads of `repr(C)` union arms (129 sites). The layout contract lives on the other side of a codegen boundary — bindgen extern-structs unmarshalled field by field (`src/jsc/generated.rs:256`), the binary lockfile's POD serialization, and tagged-pointer downcasts where the tag check and the cast are separate operations that nothing forces to agree.","precedent":"","n_patterns":39,"top_patterns":[{"group":"jsc-values","name":"bindgen tagged-union / out-param decode (union arm reads, assume_init, unreachable_unchecked, Vec::from_raw_parts on C++ allocations)","count":34,"reducible":22,"origin":"ffi-boundary","strategy":"mechanical-rewrite"},{"group":"install-pm","name":"untagged Request/Data union tag-guarded access","count":16,"reducible":14,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"io","name":"intrusive container_of recovery traits (IntrusiveIoRequest / IntrusiveUvFs / Linked / File::from_fs / MPSC node deref)","count":15,"reducible":0,"origin":"zig-port-legacy","strategy":"irreducible-centralize"},{"group":"sys-crates-b","name":"BoringSSL sk_* typed-stack wrappers & fn-pointer transmutes","count":15,"reducible":9,"origin":"ffi-boundary","strategy":"irreducible-centralize"},{"group":"install-rest","name":"untagged extern-union tag-checked field access","count":14,"reducible":9,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"bun-alloc","name":"bun.String tagged union + WTFStringImpl C++ interop","count":13,"reducible":2,"origin":"ffi-boundary","strategy":"irreducible-centralize"}]},{"id":"global-singletons","n":13,"name":"Process-global singletons & static mut","total":264,"pct":2,"categories":["static-mut-global"],"origins":{"zig-port-legacy":209,"lifetime-workaround":31,"event-loop-callback":13,"platform-syscall":7,"perf-optimization":4},"strategies":{"new-zero-cost-api":128,"use-existing-api":66,"mechanical-rewrite":43,"irreducible-centralize":27},"by_subsystem":{"bun-core-rest":31,"timer":27,"cli-rest":26,"misc-small":25,"bundler-core":20,"test-runner":20,"cli-run-test":18,"jsc-hooks":17,"install-rest":12,"resolver":12,"http-client":11,"install-pm":9,"spawn":9,"crash-exe-sourcemap":9,"sys":7,"socket-rest":4,"io":3,"api-rewriter-h2":2,"install-windows-shim":2},"claimed_reducible":209,"realistic_reducible":200,"examples":["src/runtime/cli/create_command.rs:1622 — &mut *BUN_PATH_BUF.get(), a 4KB static path scratch buffer","src/options_types/context.rs:167 — log_mut(&self) -> &mut Log (the global Log aliasing problem)"],"proposed_api":"Write-once statics -> the in-tree Once<T> (safe get/set); thread-confined state -> ThreadCell<T>; scratch path buffers -> bun_paths::path_buffer_pool::get() PoolGuard; the global Log -> interior mutability so every holder keeps &'static Log.","shape":"A `static mut` (or RacyCell) initialized once during startup and then read or written from anywhere: the global `Log`, the 4 KB path scratch buffers (`&mut *BUN_PATH_BUF.get()`, `src/runtime/cli/create_command.rs:1622`), `ENVIRON`, the BundleThread singleton. The safety contract is \"main() ran first\" or \"only this thread touches it\" — neither is machine-checked anywhere.","precedent":"","n_patterns":21,"top_patterns":[{"group":"bun-core-rest","name":"Single-thread-asserted process globals (RacyCell / ThreadCell / ThreadLock / static mut ENVIRON) and their consumers","count":31,"reducible":21,"origin":"zig-port-legacy","strategy":"use-existing-api"},{"group":"timer","name":"TLS RuntimeState/timer_all raw deref to reach the global `All`","count":27,"reducible":25,"origin":"lifetime-workaround","strategy":"new-zero-cost-api"},{"group":"cli-rest","name":"RacyCell process-global statics (path buffers, one-shot init slots, argv)","count":26,"reducible":22,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"misc-small","name":"process-global singleton / CLI Log raw-pointer deref","count":23,"reducible":18,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"bundler-core","name":"BundleThread / io-thread-pool leaked singletons accessed via raw-ptr field projection","count":20,"reducible":17,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"cli-run-test","name":"RacyCell static-mut globals and thread-local map slots","count":18,"reducible":10,"origin":"zig-port-legacy","strategy":"mechanical-rewrite"}]},{"id":"unchecked-perf","n":14,"name":"Unchecked operations & inline asm (the actual perf unsafe)","total":87,"pct":0.7,"categories":["unchecked-op","inline-asm"],"origins":{"perf-optimization":74,"zig-port-legacy":9,"platform-syscall":4},"strategies":{"mechanical-rewrite":56,"irreducible-keep":13,"irreducible-centralize":9,"new-zero-cost-api":8,"use-existing-api":1},"by_subsystem":{"bun-core-rest":14,"misc-small":14,"install-rest":9,"install-pm":8,"bun-core-strings":7,"api-misc":6,"jsc-vm":6,"parsers-ast":5,"sql-crypto-valkey":4,"sys-crates-b":4,"http-client":3,"runtime-root":2,"crash-exe-sourcemap":2,"shell":2,"install-windows-shim":1},"claimed_reducible":58,"realistic_reducible":50,"examples":["get_unchecked / from_utf8_unchecked / unreachable_unchecked after exhaustive matches / rdtsc inline asm"],"proposed_api":"Keep. Add release-mode closed-form capacity asserts where the check is one integer compare (simdutf worst-case output ratios). Under 1% of all unsafe exists for performance.","shape":"`get_unchecked`, `from_utf8_unchecked`, `unreachable_unchecked` after exhaustive matches, `rdtsc` inline asm. **This is the entire \"unsafe for speed\" story: under 1% of the total.**","precedent":"","n_patterns":17,"top_patterns":[{"group":"bun-core-rest","name":"Locally-proven unchecked ops (from_utf8_unchecked on ASCII, NonZeroU16::new_unchecked, BorrowedFd::borrow_raw)","count":14,"reducible":10,"origin":"perf-optimization","strategy":"mechanical-rewrite"},{"group":"misc-small","name":"unchecked indexing / unaligned reads on length-proven buffers","count":11,"reducible":8,"origin":"perf-optimization","strategy":"mechanical-rewrite"},{"group":"install-rest","name":"unchecked operations with externally-proven preconditions","count":9,"reducible":6,"origin":"perf-optimization","strategy":"mechanical-rewrite"},{"group":"install-pm","name":"manual NUL-terminated path-buffer surgery (write NUL, ZStr::from_raw, restore-NUL scopeguard)","count":8,"reducible":7,"origin":"zig-port-legacy","strategy":"new-zero-cost-api"},{"group":"api-misc","name":"Unchecked operations (unreachable_unchecked, from_utf8_unchecked, NonNull::new_unchecked)","count":6,"reducible":6,"origin":"perf-optimization","strategy":"mechanical-rewrite"},{"group":"jsc-vm","name":"unchecked ops & opaque-type downcasts","count":6,"reducible":4,"origin":"perf-optimization","strategy":"irreducible-centralize"}]},{"id":"artifacts-and-residue","n":15,"name":"Counting artifacts & one-off residue","total":576,"pct":4.3,"categories":["other (after reassigning fn-ptr types, vtables, refcount plumbing)"],"origins":{"already-wrapped":275,"zig-port-legacy":229,"platform-syscall":24,"ffi-boundary":19,"lifetime-workaround":18,"perf-optimization":11},"strategies":{"irreducible-keep":397,"mechanical-rewrite":128,"use-existing-api":26,"new-zero-cost-api":22,"irreducible-centralize":3},"by_subsystem":{"collections-ptr":90,"bun-alloc":26,"resolver":25,"uws":25,"webcore-rest":23,"bundler-core":22,"parsers-ast":20,"jsc-rest":20,"misc-small":20,"bun-core-rest":19,"bake":17,"socket-rest":16,"bundler-linker":15,"threading-event-loop":14,"jsc-vm":13,"node-rest":12,"webcore-blob":11,"node-fs":11,"cli-rest":11,"jsc-values":11,"install-rest":10,"io":9,"sql-crypto-valkey":9,"http-client":9,"api-rewriter-h2":9,"sys-crates-b":9,"install-pm":8,"sys":8,"webcore-fetch-s3":8,"shell":8,"sys-crates-a":7,"css":6,"jsc-ipc-modules":6,"api-spawn":5,"ffi-napi":5,"test-runner":5,"websocket":4,"api-misc":4,"cli-run-test":3,"install-windows-shim":3,"server":3,"socket-windows":3,"timer":2,"runtime-root":2,"crash-exe-sourcemap":2,"bun-core-strings":2,"dns":2,"image":2,"jsc-hooks":1,"api-cron":1},"claimed_reducible":167,"realistic_reducible":110,"examples":["~233 sites are the literal text 'unsafe {' / 'unsafe fn' inside comments and doc-comments (itemized in 19 groups)","56 sites are #[cfg(test)] code exercising the raw pool/allocator APIs","src/collections/hive_array.rs:955 — test writes through the deprecated get() raw pointer"],"proposed_api":"The comment false positives are reducible only by tightening the counting regex; report them, do not chase them. The test code shrinks when the deprecated HiveArray get()/put() surface is deleted.","shape":"*The remainder of the `other` category after reassigning fn-pointer types, vtables and refcount plumbing.* **Breakdown:** - **~233 sites are the literal text `unsafe {` / `unsafe fn` inside comments and doc-comments** — counting-regex false positives, itemized per group (collections-ptr 36, resolver 23, uws 21, misc-small 20, bundler-core 16, socket-rest 15, jsc-rest 14, jsc-vm 13, bundler-linker 13, jsc-values 11, threading-event-loop 10, sql-crypto-valkey 9, sys 8, shell 8, parsers-ast 5, install-windows-shim 3, css 3, api-spawn 3, timer 2). - **56 sites are `#[cfg(test)]` code** exercising the raw pool/allocator APIs (collections-ptr 46, bun-alloc 10) — they shrink automatically when the deprecated `get()`/`put()` surface is deleted. - **~287 sites are genuine one-offs**: the webcore encoder primitive plumbing (16), Zig struct-copy `ptr::read` of non-Copy POD AST values (15), `ManuallyDrop` ownership ceded to C++, secure-zeroing frees of key material, the deliberate-SIGSEGV crash-handler test, etc. **Claimed reducible: 167 · realistic: ~110.** The comment false positives are \"reducible\" only by tightening the counting regex; report them, don't chase them.","precedent":"","n_patterns":69,"top_patterns":[{"group":"collections-ptr","name":"test-code unsafe exercising the raw pool API","count":46,"reducible":30,"origin":"zig-port-legacy","strategy":"mechanical-rewrite"},{"group":"collections-ptr","name":"doc-comment / prose mentions of `unsafe {` (regex false positives)","count":36,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-keep"},{"group":"resolver","name":"doc-comment mentions of `unsafe {` (false positives of the counting regex)","count":23,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-keep"},{"group":"uws","name":"comment-false-positives: `unsafe {` / `unsafe fn` tokens inside comments","count":21,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-keep"},{"group":"misc-small","name":"regex false positives: 'unsafe' inside comments and doc-comments","count":20,"reducible":0,"origin":"already-wrapped","strategy":"irreducible-keep"},{"group":"bun-core-rest","name":"other: doc-comment regex false positives, inline asm stack-pointer reads, SyncCStr","count":19,"reducible":0,"origin":"zig-port-legacy","strategy":"irreducible-keep"}]}],"family_dest":[{"id":"ffi-c-calls","name":"Foreign C/C++ calls & the extern import surface","total":3107,"basis":"measured","pass":"B","note":"62% of measured call sites hit pure (B1) declarations. 5% of that share is the extern import blocks themselves, which stay unsafe, so 59% of this pattern's sites become safe at no runtime cost via safe-fn redeclaration. 35% hit stateful protocols and stay behind owning wrappers; fn-pointer types stay as-is.","dest":{"d1":1829,"d4":1170,"d5":108}},{"id":"raw-self-state-machines","name":"Raw *mut Self state machines & re-entrancy reborrows","total":2455,"basis":"measured","pass":"A","note":"Per-site dual classification: 26% Copy-scalar accesses → Cell, no runtime cost (d1); 54% short non-Copy borrows that never cross a re-entrant call → a borrow-checked cell, one branch (d2); 20% borrows held across re-entrant calls → the type needs a redesign (d3).","dest":{"d1":639,"d2":1318,"d3":498}},{"id":"callback-ctx-recovery","name":"C-callback userdata -> typed reference recovery","total":1538,"basis":"assessed","pass":null,"note":"The userdata→&Self recovery at the top of each callback becomes sound via typed registration (the generic parameter proves the type; the callback frame bounds the borrow) — d1. The registration, the free in the close callback, and the may-free-this forwarding chains stay unsafe at the transfer points — d4.","dest":{"d1":954,"d4":584}},{"id":"parent-back-pointers","name":"Parent / owner back-pointers held across the event loop","total":1143,"basis":"measured","pass":"C","note":"Per-site dual classification: 69% point at provably immortal owners → plain reference (d1); 27% at refcountable owners → Rc/Weak (d2); 3% at genuinely mortal owners → redesign (d3).","dest":{"d1":793,"d2":314,"d3":36}},{"id":"manual-heap-refcount","name":"Manual heap lifecycle & intrusive refcount plumbing","total":1135,"basis":"assessed","pass":null,"note":"Constructors return Box/OwnedRef and Drop replaces the manual deref → the intermediate call sites become safe (d1). The into_raw/from_raw pair at each FFI hand-off is the ownership transfer itself and stays unsafe, centralized (d4).","dest":{"d1":658,"d4":477}},{"id":"uninit-buffers","name":"Uninitialized memory & out-param buffers","total":582,"basis":"assessed","pass":null,"note":"WriteCursor / BorrowedBuf-style cursors over MaybeUninit storage are safe at no runtime cost (d1). Syscall out-params and C struct zero-init stay inside bun_sys wrappers (d4).","dest":{"d1":303,"d4":279}},{"id":"lifetime-erasure","name":"Lifetime erasure to 'static for self-referential storage","total":569,"basis":"assessed","pass":null,"note":"Offsets instead of pointers: sound, costs the bounds check on re-derivation (d2). The genuinely self-referential cases need the owning type restructured (d3).","dest":{"d2":341,"d3":228}},{"id":"slice-fabrication","name":"Slice fabrication from raw parts (C-owned buffers, sentinel-terminated strings)","total":485,"basis":"assessed","pass":null,"note":"A repr(C) Span<T> as the field/parameter type makes every use site safe (d1); the single as_slice() conversion per source stays unsafe next to the FFI contract that justifies it (d4).","dest":{"d1":267,"d4":218}},{"id":"jsc-bindings","name":"JSC / C++ binding calls & GC ownership transfer","total":471,"basis":"assessed","pass":null,"note":"The binding generator emits the safe wrapper once per class instead of open-coded shims (d1); the host-ABI entry points themselves are the boundary and stay (d4).","dest":{"d1":283,"d4":188}},{"id":"marker-traits","name":"Marker-trait assertions (Send/Sync, Allocator, layout-prefix, Linked)","total":371,"basis":"assessed","pass":null,"note":"unsafe impl Send/Sync/Allocator/Linked is the honest declaration of a proof obligation — it is supposed to be unsafe (d5). Roughly a tenth are redundant impls that can be deleted or derived with compile-time evidence (d1).","dest":{"d1":45,"d5":326}},{"id":"interior-mutability","name":"&self -> &mut interior-mutability casts for JS-reentrant state","total":295,"basis":"measured","pass":"A","note":"Classified in the same pass as the state machines — same rubric, same destination split.","dest":{"d1":77,"d2":158,"d3":60}},{"id":"type-punning","name":"Type punning (transmute, repr(C) unions, bindgen tagged unions)","total":287,"basis":"assessed","pass":null,"note":"repr(C,u8) enums make tag dispatch a safe match; bytemuck derives make POD byte-views safe (d1). The remaining unions mirror C ABI layouts and stay at the boundary (d4).","dest":{"d1":172,"d4":115}},{"id":"global-singletons","name":"Process-global singletons & static mut","total":264,"basis":"assessed","pass":null,"note":"Write-once statics → Once<T> (d1); thread-shared counters → atomics (d2); scratch buffers → the existing pool (d1). A residue of FFI-shaped globals stays (d4).","dest":{"d1":145,"d2":53,"d4":66}},{"id":"unchecked-perf","name":"Unchecked operations & inline asm (the actual perf unsafe)","total":87,"basis":"assessed","pass":null,"note":"The 87 sites that exist for performance, behind profiles. Keep them.","dest":{"d5":87}},{"id":"artifacts-and-residue","name":"Counting artifacts & one-off residue","total":576,"basis":"assessed","pass":null,"note":"~233 are the literal text \"unsafe\" inside comments (not code); ~110 are in dead code that should be deleted; the rest are one-offs that join their nearest family.","dest":{"d1":109,"d5":467}}],"destinations":{"d1":{"key":"d1","label":"Made safe · no slowdown","color":"#7fd1a8","desc":"Safe code, same machine instructions, no runtime cost. Cell for Copy fields, references to long-lived owners, safe redeclarations of pure C functions, RAII handles, repr(C,u8) enums, Once."},"d2":{"key":"d2","label":"Made safe · one check","color":"#5fb3c9","desc":"Safe code plus one cheap check — a branch, counter, or refcount. A real bug becomes a clean crash instead of exploitable corruption. The trade std makes with bounds checks."},"d3":{"key":"d3","label":"Made safe · needs a redesign","color":"#e8c170","desc":"No drop-in fix — the type lets two references overlap, so the structure changes first. The end state is safe code, not the risk hidden behind a wrapper."},"d4":{"key":"d4","label":"Stays unsafe · consolidated","color":"#8aa9e8","desc":"The compiler can’t carry the proof: the C call, ownership hand-offs, stateful C handles. Stays unsafe, behind a few audited wrappers instead of thousands of scattered call sites."},"d5":{"key":"d5","label":"Stays unsafe · correct as-is","color":"#6e7385","desc":"No safe form exists: profiled unchecked ops, SIMD, the unsafe trait signatures the language requires, fn-pointer types, and the word \"unsafe\" in comments."}},"dest_totals":{"d1":6274,"d2":2184,"d3":822,"d4":3097,"d5":988},"dest_by_basis":{"measured":{"d1":3338,"d2":1790,"d3":594,"d4":1170,"d5":108,"total":7000},"assessed":{"d1":2936,"d2":394,"d3":228,"d4":1927,"d5":880,"total":6365}},"classification":{"passA":{"counts":{"A1":919,"A2":1896,"A3":716,"A4":1078,"A5":4628},"in_scope":3531,"agreement":0.741,"label":"Raw-pointer state machines & shared-handle mutation","in_partition":["A1","A2","A3"],"classes":{"A1":"Copy-scalar access → Cell<T>, safe, same machine code","A2":"Short non-Copy borrow, never crosses a re-entrant call → borrow-checked cell, safe, one branch","A3":"Borrow held across a re-entrant call → the containing type needs redesign","A4":"Out of partition: construction/destruction lifecycle, counted under the manual-heap pattern","A5":"Out of partition: FFI calls and other sites in the same files, counted under their own patterns"}},"passB":{"counts":{"B1":1847,"B2":1316,"B3":96,"B4":900},"decls":4159,"impact":{"B1":3983,"B2":2275,"B3":146,"B4":24},"agreement":0.826,"label":"The extern \"C\" declaration surface","classes":{"B1":"Pure given valid inputs → safe-fn redeclaration with reference/slice parameters","B2":"Stateful or preconditioned → stays unsafe behind one owning wrapper per handle type","B3":"Already wrapped","B4":"Function-pointer type in a signature → must stay unsafe"}},"passC":{"counts":{"C1":928,"C2":367,"C3":43,"C4":198},"in_scope":1338,"agreement":0.505,"label":"Parent / owner back-pointers","in_partition":["C1","C2","C3"],"classes":{"C1":"Provably immortal owner → plain reference or BackRef, safe, no runtime cost","C2":"Refcountable owner → Rc / Weak, safe, costs a refcount or one branch","C3":"Genuinely mortal, non-refcountable owner → redesign","C4":"Out of partition: not actually a parent back-pointer on inspection"}}},"redesign_targets":[{"file":"src/runtime/jsc_hooks.rs","a3":32},{"file":"src/jsc/VirtualMachine.rs","a3":27},{"file":"src/runtime/api/bun/h2_frame_parser.rs","a3":23},{"file":"src/runtime/server/RequestContext.rs","a3":22},{"file":"src/runtime/dispatch.rs","a3":21},{"file":"src/runtime/bake/DevServer.rs","a3":18},{"file":"src/runtime/dns_jsc/dns.rs","a3":17},{"file":"src/io/PipeWriter.rs","a3":16},{"file":"src/runtime/socket/WindowsNamedPipe.rs","a3":16},{"file":"src/runtime/server/server_body.rs","a3":14},{"file":"src/runtime/shell/subproc.rs","a3":13},{"file":"src/runtime/server/mod.rs","a3":13},{"file":"src/runtime/cli/run_command.rs","a3":12},{"file":"src/runtime/api/bun/js_bun_spawn_bindings.rs","a3":11},{"file":"src/runtime/cli/test/parallel/runner.rs","a3":10},{"file":"src/http_jsc/websocket_client.rs","a3":10}],"redesigns":[{"name":"Take before the call","desc":"Copy out what the re-entrant call needs, end the borrow, make the call, re-borrow after. Local and mechanical; turns a held-across-reentry borrow into two short ones."},{"name":"Split the struct","desc":"Separate the state a re-entrant call can touch from the state being mutated into different fields or sub-structs, so the two borrows are disjoint and the borrow checker proves it."},{"name":"Defer the re-entrant call","desc":"Queue the JS callback to run after the mutation completes instead of invoking it synchronously mid-mutation. Usually also fixes a behavioral re-entrancy bug."},{"name":"Externalize the state","desc":"The object becomes a set of cells behind &self; there is no &mut to alias. The full conversion — most invasive, eliminates the aliasing question entirely."}],"unsound_safe":{"machine_flagged_locations":209,"raw_claims":262,"by_shape":{"D5":70,"D4":7,"D2":33,"D3":52,"D1":47},"by_severity":{"reachable-from-internal-callers-only":83,"theoretical":105,"reachable-from-user-js":21},"systemic":[{"pattern":"Safe `&self → &mut Self` accessors","count":70,"exemplar":"VirtualMachine::as_mut (src/jsc/VirtualMachine.rs:684)","what":"A safe method returns &mut T from a shared handle. Two safe calls produce two &mut to the same object. The doc comments state the single-JS-thread contract; the compiler cannot see it. These are the safe-signature face of the raw-pointer state machines and are fixed by the same interior-mutability conversion."},{"pattern":"Lifetime-decoupled constructors and accessors","count":85,"exemplar":"ArrayBuffer::from_bytes(&mut [u8]) (src/jsc/array_buffer.rs:406) · picohttp::Header::name() (src/picohttp/lib.rs:140)","what":"A safe function stores a borrowed pointer in a struct that outlives the borrow, or returns a reference whose lifetime is tied to the wrong owner. Some are conventions where every current caller happens to transfer ownership first; some are one-line-fix bugs. Each needs the lifetime parameter the signature is missing."},{"pattern":"Unconditional Send/Sync assertions","count":7,"exemplar":"unsafe impl<T: ?Sized> Sync for RacyCell<T> (src/bun_core/util.rs:2323) · unsafe impl<T> Sync for JsCell<T> (src/jsc/JSCell.rs:124)","what":"A Sync impl with no T: Sync bound and no runtime enforcement of the single-thread contract it documents. Sharing the type across threads from safe code is a data race."},{"pattern":"Safe deref of a stored raw pointer","count":47,"exemplar":"MarkedArrayBuffer::slice after destroy (src/jsc/array_buffer.rs:952)","what":"A safe method dereferences a raw pointer field that another safe method on the same type can invalidate."}],"hand_verified":[{"fn":"picohttp::Header::name() / value()","loc":"src/picohttp/lib.rs:140","shape":"wrong lifetime","detail":"Header is a plain struct holding *const u8 into the caller's parse buffer with no lifetime parameter. name() is a safe fn returning &[u8] tied to &self, not to the buffer. Drop the buffer, keep the Header, call name(): a safe use-after-free. Fix: Header<'buf>."},{"fn":"ArrayBuffer::from_bytes(bytes: &mut [u8], ..)","loc":"src/jsc/array_buffer.rs:406","shape":"stored borrow","detail":"Stores bytes.as_mut_ptr() in a lifetime-less struct that becomes a JS-visible ArrayBuffer. The signature borrows; the semantics require ownership transfer. Its own sibling from_owned_bytes(Box<[u8]>) exists and documents that it should be preferred. Fix: delete the borrowing version."},{"fn":"JsCell::get() + JsCell::with_mut()/set()/replace()","loc":"src/jsc/JSCell.rs:139-193","shape":"aliased &mut","detail":"get() is a safe fn returning &T with no borrow tracking; with_mut() is a safe fn handing the closure &mut T with no borrow tracking. Hold the first across the second — both safe — and the references alias. The Sync impl on the same type is documented in-source as \"a lie to the type system.\""},{"fn":"unsafe impl<T: ?Sized> Sync for RacyCell<T>","loc":"src/bun_core/util.rs:2323","shape":"unbounded Sync","detail":"Unconditional Sync over a Cell<T> payload. The contract (\"single-threaded or externally synchronized\") lives in a comment. A static RacyCell shared with a worker thread is a data race in safe code."},{"fn":"VirtualMachine::as_mut(&self) -> &mut VirtualMachine","loc":"src/jsc/VirtualMachine.rs:684","shape":"aliased &mut","detail":"The named exemplar of the ~84-instance safe &self→&mut accessor convention. Deliberate, documented, and invisible to any audit that greps for the unsafe keyword."}]},"roadmap":[{"id":"S0","title":"Fix the unsound safe-declared API surface","reduction":0,"dest":null,"what":"Add the missing lifetime parameters (`picohttp::Header`, `ArrayBuffer::from_bytes`), bound or runtime-check the unconditional `Send`/`Sync` impls, and triage the remaining machine-flagged locations. The unsafe count does not change.","why":"These functions are wrong today. Everything else in this list is prevention."},{"id":"P0","title":"Give RefPtr<T> an owning RAII form","reduction":0,"dest":"d1","what":"`RefPtr<T>` has no `Drop` impl — dropping one leaks the strong reference (`src/ptr/ref_count.rs:765`). `ScopedRef` already implements Drop = deref (`:1027`). Add `OwnedRef<T>` and make constructors return it. ~50 lines.","why":"Every project below replaces a manual `deref()` with an implicit drop, so this lands first. The migration hazard is a double-free where the manual `deref()` and the new `Drop` both fire; converting one type at a time and running Miri catches it."},{"id":"P1","title":"Checked cells for JS-reentrant state","reduction":2192,"dest":"d1+d2","cells":"raw *mut Self state machines (639 no-cost + 1318 one-check) + &self→&mut casts (77 no-cost + 158 one-check)","what":"`Cell<T>` for the 716 Copy-scalar fields: identical codegen. A release-checked borrow cell for the 1476 short non-Copy borrows: an overlap panics instead of aliasing — one counter write, one predicted branch, with an `unsafe` escape hatch for hot paths.","why":"Fixes the unsafe blocks and the ~84 safe `&self -> &mut` accessors at once — same fields. The 26/54/20 split was measured per-site on 3,531 sites, applied to the 2,750 in these patterns."},{"id":"P2","title":"Redesign the types that hold borrows across re-entry","reduction":822,"dest":"d3","cells":"the redesign share of every pattern: state machines (498) + &self→&mut casts (60) + parent back-pointers (36) + lifetime erasure (228)","what":"Borrows held across calls into JS, mortal parent back-pointers, and self-referential lifetime erasures — concentrated in ~16 types (the VM hook layer, HTTP/2 frame parser, `RequestContext`, dev server, DNS resolver, `PipeWriter`, Windows named pipe, WebSocket client, shell). Each gets one of four redesigns.","why":"The expensive part — and it tends to find real bugs, since a borrow held across a call into user JS is usually a re-entrancy hazard too."},{"id":"P3","title":"safe fn redeclarations for the pure half of the C surface","reduction":1829,"dest":"d1","cells":"Foreign C/C++ calls made safe (1829)","what":"1,847 of 4,159 extern declarations are pure — lengths, getters, hash updates. Redeclared `pub safe fn`, their call sites drop the `unsafe`. The 1,316 stateful ones get an owning handle type that encodes the protocol.","why":"A pure C function declared `safe fn` puts the proof in the signature. A stateful one would be a new unsound API — so each is reviewed individually."},{"id":"P4","title":"References and refcounts for parent back-pointers","reduction":1107,"dest":"d1","cells":"parent back-pointers (793 references + 314 refcounts)","what":"69% point at owners that outlive the child — the VM, event loop, server, arena. Those 793 become references or a `BackRef`. The 314 refcountable ones become `Rc`/`Weak`.","why":"`@fieldParentPtr` survived the port because Zig has no other way to say \"my owner.\" Rust does. The 69/27/3 split was measured on 1,338 sites, applied to the 1,143 in this pattern."},{"id":"P5","title":"Typed callback registration for uws / libuv / the work pool","reduction":954,"dest":"d1","cells":"callback userdata recovery (954)","what":"Store a `T`, get a `&T` back in the callback, the type parameter carrying the proof. One generated trampoline per callback shape instead of hand-written per call site.","why":"The registration site and the recovery site already agree on the type. The wrapper makes the compiler check it."},{"id":"P6","title":"Owning handles, RAII, and the textbook conversions","reduction":2376,"dest":"d1","cells":"the safe-able share of the nine remaining patterns","what":"Standard fixes across the remaining families: `Box`/`OwnedRef` constructors, `WriteCursor` over uninit buffers, `repr(C,u8)` enums, `Span<T>`, `Once<T>`, offset handles, and deleting dead code.","why":"Each of these has an existing soundness proof in the standard library or the ecosystem. The work is volume, not design."}],"verification":{"census_agents":205,"classify_agents":647,"census_verdicts":{"confirmed":1344,"corrected":298,"refuted":0},"agreement":{"A":0.741,"B":0.826,"C":0.505},"hand_checked_citations":33}};
+const $ = s => document.querySelector(s);
+// shared cursor-following tooltip, driven by data-tip="Title‖detail line"
+(function tooltip(){
+  const tip=document.getElementById('tip');
+  let raf=0,x=0,y=0;
+  const place=()=>{raf=0;const w=tip.offsetWidth,h=tip.offsetHeight;
+    let nx=x+14,ny=y+16;if(nx+w>innerWidth-8)nx=x-w-14;if(ny+h>innerHeight-8)ny=y-h-16;
+    tip.style.left=nx+'px';tip.style.top=ny+'px';};
+  addEventListener('mousemove',e=>{
+    const el=e.target.closest&&e.target.closest('[data-tip]');
+    if(!el){tip.classList.remove('on');return;}
+    const [t,n]=el.getAttribute('data-tip').split('‖');
+    tip.innerHTML=(t?`<span class="tt">${t}</span>`:'')+(n?`<span class="tn">${n}</span>`:'');
+    tip.classList.add('on');x=e.clientX;y=e.clientY;if(!raf)raf=requestAnimationFrame(place);
+  },{passive:true});
+  addEventListener('mouseout',e=>{if(!e.relatedTarget)tip.classList.remove('on');},{passive:true});
+})();
+const fmt = n => n.toLocaleString('en-US');
+const pct = n => (100*n/DATA.total).toFixed(1)+'%';
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const md = s => esc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
+
+const ORIGIN_COLORS = {
+  'zig-port-legacy':'#e8926a','ffi-boundary':'#8aa9e8','event-loop-callback':'#c79be8',
+  'lifetime-workaround':'#e8c170','already-wrapped':'#6e7385','platform-syscall':'#5fb3c9',
+  'perf-optimization':'#e0796b','gc-interaction':'#9fd17f'
+};
+const ORIGIN_LABELS = {
+  'zig-port-legacy':'pointer idioms ported verbatim from Zig, which has no borrow checker to satisfy',
+  'ffi-boundary':'calling C/C++ that takes raw pointers',
+  'event-loop-callback':'void* userdata round-trips through C callbacks',
+  'lifetime-workaround':'the ownership graph doesn’t fit the borrow checker as written',
+  'already-wrapped':'already inside the safe abstraction where it belongs',
+  'platform-syscall':'raw kernel interfaces',
+  'perf-optimization':'skipping a bounds check, UTF-8 validation, or zero-initialization',
+  'gc-interaction':'JavaScriptCore object ownership rules'
+};
+const FAM_COLORS = ['#8aa9e8','#e8926a','#c79be8','#e8c170','#7fd1a8','#5fb3c9','#e07a8b','#9fd17f',
+                    '#d1a87f','#7f9fd1','#cf86b8','#86cfc0','#b8cf86','#a886cf','#8a8fa0'];
+const famColor = id => FAM_COLORS[DATA.families.findIndex(f=>f.id===id)] || '#6e7385';
+const famShort = {
+  'ffi-c-calls':'Foreign C/C++ calls','raw-self-state-machines':'Raw *mut Self state machines',
+  'callback-ctx-recovery':'Callback userdata → &Self','parent-back-pointers':'Parent back-pointers',
+  'manual-heap-refcount':'Manual heap & refcounts','uninit-buffers':'Uninitialized buffers',
+  'lifetime-erasure':'Lifetime erasure to ’static','slice-fabrication':'Slices from raw parts',
+  'jsc-bindings':'JSC bindings & GC transfer','marker-traits':'Marker-trait assertions',
+  'type-punning':'Type punning','interior-mutability':'&self → &mut casts',
+  'global-singletons':'static mut singletons','unchecked-perf':'Unchecked ops (perf)',
+  'artifacts-and-residue':'Artifacts & one-offs'
+};
+const D = DATA.destinations;
+const DKEYS = ['d1','d2','d3','d4','d5'];
+const DSHORT = {d1:'no slowdown',d2:'+1 check',d3:'redesign',d4:'consolidated',d5:'correct'};
+
+// ── hero ──────────────────────────────────────────────────────────────────
+const SAFE = DATA.dest_totals.d1 + DATA.dest_totals.d2 + DATA.dest_totals.d3;
+const KEEP = DATA.dest_totals.d4 + DATA.dest_totals.d5;
+$('#hero-groups').innerHTML =
+  `<div class="gsafe" style="width:${100*SAFE/DATA.total}%"><span class="gt">Can be made safe</span><span class="gn">~${fmt(Math.round(SAFE/100)*100)} · ${pct(SAFE)}</span></div>`+
+  `<div class="gkeep" style="width:${100*KEEP/DATA.total}%"><span class="gt">Stays unsafe</span><span class="gn">~${fmt(Math.round(KEEP/500)*500)} · ${pct(KEEP)}</span></div>`;
+$('#hero-bar').innerHTML = DKEYS.map(k=>{
+  const v=DATA.dest_totals[k], w=100*v/DATA.total;
+  return `<div style="width:${w}%;background:${D[k].color}" data-tip="${esc(D[k].label)}‖${fmt(v)} sites · ${pct(v)} — ${esc(D[k].desc)}">
+    <span class="bl">${w>=6?`<span class="n">${fmt(v)}</span><span class="k">${esc(DSHORT[k])}</span>`:''}</span></div>`;}).join('');
+$('#hero-legend').innerHTML = DKEYS.map(k=>
+  `<span><span class="sw" style="background:${D[k].color}"></span><b>${esc(D[k].label)}</b><span class="num">${pct(DATA.dest_totals[k])}</span></span>`).join('');
+$('#hero-badges').innerHTML = [
+  ['13,365','syntactic sites'],['774','files'],['51','subsystems'],['15','patterns'],['52%','classified per-site'],
+].map(([v,k])=>`<span class="badge"><b>${v}</b> ${k}</span>`).join('');
+
+// ── § 01 origins ──────────────────────────────────────────────────────────
+$('#why-cards').innerHTML = [
+  [`3.1%`,`Performance`,`412 sites: <code>get_unchecked</code>, unchecked UTF-8 conversion, SIMD intrinsics, uninitialized buffers.`,'var(--bad)'],
+  [`33.9%`,`Zig-era ownership`,`4,530 sites: <code>*mut Self</code> state machines, parent back-pointers, manual refcounts. Bun was ported from Zig, which has no borrow checker. These patterns came across unchanged.`,'var(--accent)'],
+  [`29.8%`,`The FFI boundary`,`3,986 calls into JavaScriptCore, uWebSockets, uSockets, libuv, BoringSSL, c-ares, zlib, libarchive, lol-html, and mimalloc — all vendored and bound from the one workspace. Calling C is unsafe by definition.`,'var(--d4)'],
+].map(([v,t,l,c])=>`<div class="stat" style="--sc:${c}"><div class="v">${v}</div><h4>${t}</h4><p>${l}</p></div>`).join('');
+const originEntries = Object.entries(DATA.origins).sort((a,b)=>b[1]-a[1]);
+$('#origin-bar').innerHTML = originEntries.map(([k,v])=>{
+  const w=100*v/DATA.total;
+  return `<div style="width:${w}%;background:${ORIGIN_COLORS[k]}" data-tip="${esc(k)}‖${fmt(v)} sites · ${pct(v)} — ${esc(ORIGIN_LABELS[k])}"><span class="obl">${w>=7?pct(v):''}</span></div>`;}).join('');
+$('#origin-legend').innerHTML = originEntries.map(([k,v])=>
+  `<span title="${esc(ORIGIN_LABELS[k])}"><span class="sw" style="background:${ORIGIN_COLORS[k]}"></span><b>${k}</b> <span class="num">${fmt(v)}</span></span>`).join('');
+
+// ── § 02 sankey ───────────────────────────────────────────────────────────
+(function flow(){
+  const W=1124, gap=3, padTop=46, H=760, innerH=H-padTop-20;
+  const cols = [
+    {items: originEntries.map(([k,v])=>({id:k,label:k,v,color:ORIGIN_COLORS[k]})), head:'WHY · origin'},
+    {items: DATA.families.map(f=>({id:f.id,label:famShort[f.id]||f.name,v:f.total,color:famColor(f.id)})), head:'WHAT · pattern'},
+    {items: DKEYS.map(k=>({id:k,label:D[k].label,v:DATA.dest_totals[k],color:D[k].color})), head:'WHERE IT ENDS UP'},
+  ];
+  for (const c of cols){
+    const totalGap = gap*(c.items.length-1);
+    let y = padTop;
+    for (const it of c.items){ it.h = Math.max(4,(it.v/DATA.total)*(innerH-totalGap)); it.y = y; y += it.h+gap; }
+  }
+  const links = [];
+  for (const f of DATA.families){
+    for (const [o,n] of Object.entries(f.origins)) if(n>0) links.push({s:'o:'+o, t:'f:'+f.id, v:n, color:ORIGIN_COLORS[o]});
+    const fd=DATA.family_dest.find(x=>x.id===f.id);
+    for (const k of DKEYS) if(fd.dest[k]>0) links.push({s:'f:'+f.id, t:'d:'+k, v:fd.dest[k], color:famColor(f.id)});
+  }
+  const nodeIndex = {};
+  cols[0].items.forEach(it=>nodeIndex['o:'+it.id]={...it,col:0});
+  cols[1].items.forEach(it=>nodeIndex['f:'+it.id]={...it,col:1});
+  cols[2].items.forEach(it=>nodeIndex['d:'+it.id]={...it,col:2});
+  const outCur={}, inCur={};
+  links.sort((a,b)=> (nodeIndex[a.s].y-nodeIndex[b.s].y) || (nodeIndex[a.t].y-nodeIndex[b.t].y));
+  for (const l of links){
+    const s=nodeIndex[l.s], t=nodeIndex[l.t];
+    const sh = (l.v/s.v)*s.h, th = (l.v/t.v)*t.h;
+    l.sy = s.y + (outCur[l.s]||0); outCur[l.s]=(outCur[l.s]||0)+sh; l.sh=sh;
+    l.ty = t.y + (inCur[l.t]||0); inCur[l.t]=(inCur[l.t]||0)+th; l.th=th;
+  }
+  const NODE_W=14;
+  const barX=[206, (W)/2 - NODE_W/2, W-230-NODE_W];
+  let svg='';
+  svg += cols.map((c,i)=>`<text class="colhead" x="${i===0?0:i===1?barX[1]+NODE_W/2:W}" y="20" text-anchor="${i===0?'start':i===1?'middle':'end'}">${c.head}</text>`).join('');
+  for (const l of links){
+    const s=nodeIndex[l.s], t=nodeIndex[l.t];
+    const x1=barX[s.col]+NODE_W, x2=barX[t.col];
+    const cx=(x1+x2)/2;
+    svg += `<path class="ribbon" data-s="${l.s}" data-t="${l.t}" data-tip="${esc(nodeIndex[l.s].label)} → ${esc(nodeIndex[l.t].label)}‖${fmt(l.v)} sites" fill="${l.color}" opacity="0.28"
+      d="M${x1},${l.sy} C${cx},${l.sy} ${cx},${l.ty} ${x2},${l.ty} L${x2},${l.ty+l.th} C${cx},${l.ty+l.th} ${cx},${l.sy+l.sh} ${x1},${l.sy+l.sh} Z"/>`;
+  }
+  for (const [key,n] of Object.entries(nodeIndex)){
+    const x=barX[n.col];
+    svg += `<rect class="node" data-id="${key}" data-tip="${esc(n.label)}‖${fmt(n.v)} sites · ${pct(n.v)}" x="${x}" y="${n.y}" width="${NODE_W}" height="${n.h}" fill="${n.color}"/>`;
+    const labx = n.col===0 ? x-10 : x+NODE_W+10;
+    const anchor = n.col===0 ? 'end' : 'start';
+    if (n.h>=15 || n.v>150){
+      svg += `<text class="nlabel" data-id="${key}" x="${labx}" y="${n.y+Math.max(n.h/2,7)+1}" text-anchor="${anchor}" dominant-baseline="middle">${esc(n.label)} <tspan class="nsub">${fmt(n.v)}</tspan></text>`;
+    }
+  }
+  $('#flowsvg').innerHTML = svg;
+  const note=$('#flownote');
+  const reset=()=>{document.querySelectorAll('#flowsvg .ribbon').forEach(p=>p.style.opacity=.28);
+    document.querySelectorAll('#flowsvg .node').forEach(p=>p.style.opacity=1);};
+  $('#flowsvg').addEventListener('click',e=>{
+    const id=(e.target.closest('[data-id]')||e.target).dataset?.id;
+    if(!id){reset();note.innerHTML='Click an origin, pattern, or destination to trace where its sites flow.';return;}
+    reset();
+    const connected=new Set([id]);
+    document.querySelectorAll('#flowsvg .ribbon').forEach(p=>{
+      if(p.dataset.s===id||p.dataset.t===id){connected.add(p.dataset.s);connected.add(p.dataset.t);}
+    });
+    const connectedFams=new Set([...connected].filter(k=>k.startsWith('f:')));
+    document.querySelectorAll('#flowsvg .ribbon').forEach(p=>{
+      const direct=p.dataset.s===id||p.dataset.t===id;
+      const second=!direct&&(id[0]!=='f')&&(connectedFams.has(p.dataset.s)||connectedFams.has(p.dataset.t));
+      p.style.opacity = direct? .78 : second? .16 : .04;
+    });
+    document.querySelectorAll('#flowsvg .node').forEach(p=>{p.style.opacity = connected.has(p.dataset.id)? 1:.22;});
+    const n=nodeIndex[id];
+    const kind=id[0]==='o'?'origin':id[0]==='f'?'pattern':'destination';
+    let extra='';
+    if(id[0]==='o') extra = esc(ORIGIN_LABELS[id.slice(2)]||'');
+    if(id[0]==='f') extra=`<a href="#lr-${id.slice(2)}" onclick="document.getElementById('lr-${id.slice(2)}').classList.add('open')">Jump to the ledger row ↓</a>`;
+    if(id[0]==='d') extra=esc(D[id.slice(2)].desc);
+    note.innerHTML=`<b>${esc(n.label)}</b> · ${kind} · <span class="num">${fmt(n.v)}</span> sites (${pct(n.v)}). ${extra}`;
+  });
+})();
+
+// ── PART II: why it's fine ────────────────────────────────────────────────
+$('#finelist').innerHTML = [
+  ['10,575','It counts declarations, not just code','Plus 1,352 `unsafe fn`, 1,011 `unsafe extern`, 405 `unsafe impl`, 22 `unsafe trait`, ~233 comment matches. A fifth of the count is declarations. Every block carries a `// SAFETY:` comment, enforced by a deny-level lint.'],
+  ['4,159','Calling C is unsafe by definition','Rust can\u2019t prove a pointer to `uv_read_start` outlives the call, or that `JSC__JSObject__get` won\u2019t re-enter \u2014 the proof lives in the C docs. 3,986 such calls, 4,159 C declarations across eight libraries, one audited wrapper each.'],
+  ['408+','A GC\u2019d object graph isn\u2019t an ownership type','JS values belong to JavaScriptCore\u2019s GC. No lifetime means "until the GC frees it" \u2014 a `*mut JSString` stays alive by marking and rooting, not the borrow checker. Every binding to a GC\u2019d engine works this way.'],
+  ['4,530','Same-thread re-entrancy is invisible aliasing','The runtime calls into JS; JS calls back in; the first object is touched again mid-call. Two live references, one thread, no data race. Zig and C++ allow it; Rust\u2019s `&mut` rule doesn\u2019t, so the port used raw pointers. The aliasing predates the port \u2014 Rust made it visible.'],
+  ['412','Unsafe and fast overlap in 412 sites','Skipped bounds checks, skipped UTF-8 validation, zero-fills, SIMD. The entire intersection of unsafe and performance.'],
+  ['~4,000','A third has no safe form','`from_raw_parts`, `assume_init`, `get_unchecked` have been unsafe in std for a decade \u2014 unprovable preconditions. So is an FFI call, an ownership transfer, a `Send` impl. ~4,000 sites move into `*_sys` crates next to the C docs and stay unsafe.'],
+].map(([v,t,l])=>`<div><div class="fv num">${v}</div><div class="ft"><b>${t}</b><p>${md(l)}</p></div></div>`).join('');
+
+// ── comparison ────────────────────────────────────────────────────────────
+(function cmp(){
+  const max=Math.max(...DATA.comparison.map(c=>c.density));
+  $('#cmp').innerHTML = DATA.comparison.map(c=>`<div class="${c.hl?'hl':''}" data-tip="${esc(c.name)}‖${c.density} unsafe per 1k lines${c.projected?' (projected)':' · '+fmt(c.sites)+' sites / '+fmt(c.loc)+' lines'} — ${esc(c.what)}">
+    <span class="cn">${esc(c.name)}<span class="cw">${esc(c.what)}</span></span>
+    <span class="ct"><div style="width:${100*c.density/max}%;background:${c.projected?'#7fd1a8':c.hl?'#f5a97f':'#4a4f5e'}"></div>
+      <span class="cs" style="left:calc(${100*c.density/max}% + 8px)">${c.projected?'projected':fmt(c.sites)+' sites / '+fmt(Math.round(c.loc/1000))+'k lines'}</span></span>
+    <span class="cv">${c.density}<span class="cu">per 1k lines</span></span>
+  </div>`).join('');
+})();
+
+// ── § 03 the ledger ───────────────────────────────────────────────────────
+$('#ledger-rows').innerHTML = DATA.families.map((f,i)=>{
+  const c=FAM_COLORS[i];
+  const fd=DATA.family_dest.find(x=>x.id===f.id);
+  const subs=Object.entries(f.by_subsystem).sort((a,b)=>b[1]-a[1]).slice(0,7);
+  const maxSub=subs.length?subs[0][1]:1;
+  const topOrigin=Object.entries(f.origins).sort((a,b)=>b[1]-a[1])[0];
+  const exs=f.examples.map(e=>{const m=String(e).match(/^(\S+?:\d+(?:[-–]\d+)?)\s*(?:—|–|-)?\s*(.*)$/s);
+    return `<li><span class="loc">${esc(m?m[1]:e)}</span>${m&&m[2]?esc(m[2]):''}</li>`;}).join('');
+  return `<div class="lrow open" id="lr-${f.id}">
+    <header onclick="this.parentElement.classList.toggle('open')">
+      <span class="li">${String(i+1).padStart(2,'0')}</span>
+      <span class="ln">${esc(famShort[f.id]||f.name)}<span class="lo">${topOrigin?topOrigin[0]:''}</span></span>
+      <span class="lb">${DKEYS.map(k=>fd.dest[k]?`<div style="width:${100*fd.dest[k]/f.total}%;background:${D[k].color}" data-tip="${esc(D[k].label)}‖${fmt(fd.dest[k])} of this pattern's ${fmt(f.total)} sites">`+'</div>':'').join('')}</span>
+      <span class="lc">${fmt(f.total)}<span class="lp">${f.pct}%</span></span>
+      <span class="chev">›</span>
+    </header>
+    <div class="lbody">
+      <div class="lgrid">
+        <div>
+          ${f.shape?`<div class="lblock"><h5>Where the unsafety comes from</h5><p>${md(f.shape)}</p></div>`:''}
+          ${f.examples.length?`<div class="lblock"><h5>Examples · file:line</h5><ul class="exlist">${exs}</ul></div>`:''}
+          <div class="lblock fix"><h5>The replacement</h5><p>${md(f.proposed_api)}</p></div>
+          ${f.precedent?`<div class="lblock"><h5>Precedent already in-tree</h5><p>${md(f.precedent)}</p></div>`:''}
+        </div>
+        <div>
+          <div class="lblock"><h5>Destination</h5>
+            <div class="mbars">${DKEYS.filter(k=>fd.dest[k]).map(k=>`<div class="mb"><span class="l" title="${esc(D[k].label)}">${esc(D[k].label)}</span><span class="t"><div style="width:${100*fd.dest[k]/f.total}%;background:${D[k].color}"></div></span><span class="v">${fmt(fd.dest[k])}</span></div>`).join('')}</div>
+            <p style="font-size:11.5px;color:var(--mut);margin-top:10px;line-height:1.6">${esc(fd.note)}</p></div>
+          <div class="lblock"><h5>Where it lives</h5>
+            <div class="mbars">${subs.map(([g,n])=>`<div class="mb"><span class="l" title="${g}">${g}</span><span class="t"><div style="width:${100*n/maxSub}%;background:${c}"></div></span><span class="v">${fmt(n)}</span></div>`).join('')}</div></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}).join('');
+let xopen=true;
+$('#xall').textContent='Collapse all';
+$('#xall').addEventListener('click',()=>{
+  xopen=!xopen;
+  document.querySelectorAll('.lrow').forEach(r=>r.classList.toggle('open',xopen));
+  $('#xall').textContent=xopen?'Collapse all':'Expand all';
+});
+
+// ── § 04 evidence ─────────────────────────────────────────────────────────
+const PASSCOLORS = { A1:'#7fd1a8',A2:'#5fb3c9',A3:'#e8c170',A4:'#6e7385',A5:'#3a3e49',
+  B1:'#7fd1a8',B2:'#8aa9e8',B3:'#6e7385',B4:'#3a3e49', C1:'#7fd1a8',C2:'#5fb3c9',C3:'#e8c170',C4:'#3a3e49' };
+const PASSQ = { passA:'Does this borrow cross a call that can re-enter JavaScript?',
+  passB:'Is this C function pure, or stateful?', passC:'Does this parent provably outlive this child?' };
+$('#passes').innerHTML = ['passA','passB','passC'].map(pk=>{
+  const p=DATA.classification[pk];
+  const counts=p.counts; const all=Object.keys(counts).filter(k=>counts[k]>0);
+  const inp = p.in_partition ? all.filter(k=>p.in_partition.includes(k)) : all;
+  const outp = all.filter(k=>!inp.includes(k));
+  const denom=inp.reduce((s,k)=>s+counts[k],0);
+  return `<div class="pass"><div class="pq">${esc(PASSQ[pk])}</div>
+  <div class="pm">${esc(p.label)} · ${p.in_scope?fmt(denom)+' sites in this partition':fmt(p.decls)+' declarations'} · 2 classifiers agreed on ${(p.agreement*100).toFixed(0)}%</div>
+  <div class="pbar">${inp.map(k=>`<div style="width:${100*counts[k]/denom}%;background:${PASSCOLORS[k]}" data-tip="${k} — ${esc(p.classes[k])}‖${fmt(counts[k])} sites"></div>`).join('')}</div>
+  <ul>${inp.map(k=>`<li><span class="sw" style="background:${PASSCOLORS[k]}"></span><span class="cn">${fmt(counts[k])}</span><span><b style="color:var(--tx)">${k}</b> — ${esc(p.classes[k])}</span></li>`).join('')}
+  ${outp.map(k=>`<li style="opacity:.55"><span class="sw" style="background:${PASSCOLORS[k]}"></span><span class="cn">${fmt(counts[k])}</span><span><b style="color:var(--tx)">${k}</b> — ${esc(p.classes[k])}</span></li>`).join('')}</ul></div>`;
+}).join('');
+
+const VLIST_HTML = `<div class="vlist" style="margin-top:14px">${DATA.unsound_safe.hand_verified.map(v=>`<div class="vitem">
+  <span class="vfn">${esc(v.fn)}</span><span class="vloc">${esc(v.loc)} · ${esc(v.shape)}</span>
+  <div class="vdetail">${md(v.detail)}</div></div>`).join('')}</div>
+  <p class="small" style="margin-top:10px;line-height:1.7">Five of 209 machine-flagged locations, verified by hand. The rest ship in the raw data with their claimed trigger sequences; the standard for promoting one to a bug is that safe calls alone must produce undefined behavior.</p>`;
+
+// ── § 06 the plan ─────────────────────────────────────────────────────────
+(function waterfall(){
+  const W=1124,H=360,padL=10,padR=10,padT=34,padB=44;
+  const steps=[{name:'today',v:DATA.total}];
+  let run=DATA.total;
+  DATA.roadmap.forEach((p,i)=>{ if(p.reduction>0){run-=p.reduction;steps.push({name:'step '+(i+1),v:run,d:p.reduction,full:p.title,dest:p.dest});}});
+  steps.push({name:'remains',v:run,final:true});
+  const n=steps.length, bw=(W-padL-padR)/n*0.62, gap=(W-padL-padR)/n;
+  const y=v=>padT+(1-v/DATA.total)*(H-padT-padB);
+  const dcol={'d1':'#7fd1a8','d2':'#5fb3c9','d3':'#e8c170','d1+d2':'#6fc2b9'};
+  let svg=`<line x1="${padL}" y1="${y(0)}" x2="${W-padR}" y2="${y(0)}" stroke="#23262f"/>`;
+  steps.forEach((s,i)=>{
+    const x=padL+i*gap+(gap-bw)/2;
+    if(i===0||s.final){
+      svg+=`<rect x="${x}" y="${y(s.v)}" width="${bw}" height="${y(0)-y(s.v)}" fill="${s.final?'#3d4250':'#f5a97f'}" rx="4" data-tip="${s.final?'After the plan (ballpark)':'Today'}‖${s.final?'roughly '+fmt(Math.round(s.v/500)*500):fmt(s.v)} unsafe sites"/>`;
+      svg+=`<text x="${x+bw/2}" y="${y(s.v)-10}" text-anchor="middle" font-size="15" font-weight="700" fill="#ece6d9" font-family="ui-monospace,Menlo,monospace">${s.final?'~'+fmt(Math.round(s.v/500)*500):fmt(s.v)}</text>`;
+    } else {
+      const prev=steps[i-1];
+      svg+=`<rect x="${x}" y="${y(prev.v)}" width="${bw}" height="${Math.max(2,y(s.v)-y(prev.v))}" fill="${dcol[s.dest]||'#7fd1a8'}" rx="3" data-tip="${esc(s.full)}‖removes ${fmt(s.d)} sites · ${fmt(s.v)} remain"/>`;
+      svg+=`<line x1="${x-((gap-bw)/2)}" y1="${y(prev.v)}" x2="${x}" y2="${y(prev.v)}" stroke="#3d4250" stroke-dasharray="2,3"/>`;
+      svg+=`<text x="${x+bw/2}" y="${y(prev.v)-8}" text-anchor="middle" font-size="11.5" fill="#b4aea0" font-family="ui-monospace,Menlo,monospace">−${fmt(s.d)}</text>`;
+    }
+    svg+=`<text x="${x+bw/2}" y="${H-padB+18}" text-anchor="middle" font-size="11.5" fill="${s.final||i===0?'#ece6d9':'#7b7769'}" font-weight="${s.final||i===0?'700':'500'}" font-family="ui-monospace,Menlo,monospace">${s.name}</text>`;
+  });
+  svg+=`<text x="${W-padR}" y="${padT-14}" text-anchor="end" font-size="11" fill="#7b7769" font-family="ui-monospace,Menlo,monospace">remaining unsafe sites after each project · bar color = destination</text>`;
+  $('#wfsvg').innerHTML=svg;
+})();
+const REDESIGNS_HTML = `<div class="rgrid">${DATA.redesigns.map((r,i)=>`<div><div class="rn">REDESIGN ${i+1}</div><h5>${esc(r.name)}</h5><p>${esc(r.desc)}</p></div>`).join('')}</div>
+  <div style="margin-top:14px" class="mbars">${DATA.redesign_targets.slice(0,12).map(t=>`<div class="mb" style="grid-template-columns:minmax(0,46%) 1fr 34px"><span class="l" title="${esc(t.file)}" style="direction:rtl;text-align:left">${esc(t.file)}</span><span class="t"><div style="width:${100*t.a3/DATA.redesign_targets[0].a3}%;background:#e8c170"></div></span><span class="v">${t.a3}</span></div>`).join('')}</div>
+  <p class="small" style="margin-top:8px">The 716 measured held-across-reentry sites, by file — a list of refactoring projects, not a diffuse problem.</p>`;
+$('#projlist').innerHTML = DATA.roadmap.map((p,i)=>`<div class="proj" id="proj-${p.id.toLowerCase()}">
+  <div class="pid">${i+1}<span class="eff">${p.id==='S0'?'DO FIRST':p.id==='P0'?'GROUNDWORK':''}</span></div>
+  <div>
+    <h4>${esc(p.title)}</h4>
+    ${p.cells?`<div style="font-family:var(--mono);font-size:11px;color:var(--mut);margin:-3px 0 9px">= ${esc(p.cells)}</div>`:''}
+    <div class="pwhat">${md(p.what)}</div>
+    ${p.why?`<div class="pwhy">${md(p.why)}</div>`:''}
+    ${p.id==='P2'?REDESIGNS_HTML:''}${p.id==='S0'?VLIST_HTML:''}
+  </div>
+  <div class="pred"><div class="n" style="${p.reduction===0?'color:#e0796b':''}">${p.reduction>0?'−'+fmt(p.reduction):'±0'}</div>
+  <div class="k">${p.id==='S0'?'count unchanged · UB removed':p.id==='P0'?'count unchanged · unblocks the rest':'sites made sound'}</div></div>
+</div>`).join('');
+
+// ── appendix: treemap ─────────────────────────────────────────────────────
+(function treemap(){
+  const el=$('#tmap');
+  const redu={};
+  for(const f of DATA.family_dest){const sound=((f.dest.d1||0)+(f.dest.d2||0)+(f.dest.d3||0))/f.total;
+    for(const [g,n] of Object.entries(DATA.families.find(x=>x.id===f.id).by_subsystem)) redu[g]=(redu[g]||0)+n*sound;}
+  const items=Object.entries(DATA.subsystems).map(([k,v])=>({k,v,r:(redu[k]||0)/v})).sort((a,b)=>b.v-a.v);
+  $('#tmap-sum').textContent=fmt(items.reduce((s,i)=>s+i.v,0));
+  function layout(items,x,y,w,h){
+    if(!items.length)return[];
+    const total=items.reduce((s,i)=>s+i.v,0), scale=w*h/total;
+    let rects=[],row=[],rest=items.slice(),rx=x,ry=y,rw=w,rh=h;
+    const worst=(row,len)=>{const s=row.reduce((a,b)=>a+b.v*scale,0);if(!s)return Infinity;
+      let m=0;for(const r of row){const a=r.v*scale;m=Math.max(m,Math.max(len*len*a/(s*s),s*s/(len*len*a)));}return m;};
+    while(rest.length){
+      const len=Math.min(rw,rh);
+      row.push(rest[0]);
+      if(row.length>1&&worst(row,len)>worst(row.slice(0,-1),len)){
+        row.pop();
+        const s=row.reduce((a,b)=>a+b.v*scale,0), thick=s/len; let off=0;
+        for(const r of row){const ext=r.v*scale/thick;
+          rects.push(rw<rh?{...r,x:rx+off,y:ry,w:ext,h:thick}:{...r,x:rx,y:ry+off,w:thick,h:ext});off+=ext;}
+        if(rw<rh){ry+=thick;rh-=thick;}else{rx+=thick;rw-=thick;}
+        row=[];continue;
+      }
+      rest.shift();
+    }
+    if(row.length){const len=Math.min(rw,rh),s=row.reduce((a,b)=>a+b.v*scale,0),thick=s/len;let off=0;
+      for(const r of row){const ext=r.v*scale/thick;
+        rects.push(rw<rh?{...r,x:rx+off,y:ry,w:ext,h:thick}:{...r,x:rx,y:ry+off,w:thick,h:ext});off+=ext;}}
+    return rects;
+  }
+  const rmin=Math.min(...items.map(i=>i.r)), rmax=Math.max(...items.map(i=>i.r));
+  const lerp=(a,b,t)=>Math.round(a+(b-a)*t);
+  const color=t=>{const c1=[74,79,94],c2=[127,209,168];const u=Math.max(0,Math.min(1,(t-rmin)/(rmax-rmin||1)));
+    return `rgb(${lerp(c1[0],c2[0],u)},${lerp(c1[1],c2[1],u)},${lerp(c1[2],c2[2],u)})`;};
+  let selectedKey=null;
+  function render(){
+    const W=el.clientWidth||1084, H=el.clientHeight||520;
+    const rects=layout(items,0,0,W,H);
+    el.innerHTML=rects.map(r=>`<div class="tile${r.k===selectedKey?' sel':''}" data-k="${r.k}" data-tip="${esc(r.k)}‖${fmt(r.v)} unsafe sites · ~${Math.round(100*r.r)}% with a sound destination" style="left:${r.x.toFixed(1)}px;top:${r.y.toFixed(1)}px;width:${r.w.toFixed(1)}px;height:${r.h.toFixed(1)}px;background:${color(r.r)}">
+      ${r.w>56&&r.h>28?`<div class="tn">${r.k}</div>${r.h>42?`<div class="tv">${fmt(r.v)}</div>`:''}`:''}</div>`).join('');
+  }
+  render();
+  let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150)});
+  const detail=$('#tdetail');
+  el.addEventListener('click',e=>{
+    const t=e.target.closest('.tile');if(!t)return;
+    selectedKey=t.dataset.k;
+    el.querySelectorAll('.tile').forEach(x=>x.classList.toggle('sel',x===t));
+    const k=t.dataset.k, v=DATA.subsystems[k], fams=DATA.subsystem_families[k]||[];
+    const r=items.find(i=>i.k===k);
+    detail.innerHTML=`<h3><code>${k}</code> — ${esc(DATA.subsystem_labels[k]||'')}</h3>
+      <p class="small" style="margin-top:5px"><span class="num">${fmt(v)}</span> unsafe sites · ~${Math.round(100*r.r)}% with a sound destination · dominant pattern: ${esc(famShort[fams[0]?.family]||'')}</p>
+      <div class="fbar">${fams.map(f=>`<div style="width:${100*f.n/v}%;background:${famColor(f.family)}" data-tip="${esc(famShort[f.family]||f.family)}‖${fmt(f.n)} sites in ${esc(k)}"></div>`).join('')}</div>
+      <div class="olegend">${fams.slice(0,8).map(f=>`<span><span class="sw" style="background:${famColor(f.family)}"></span>${esc(famShort[f.family]||f.family)} <span class="num">${fmt(f.n)}</span></span>`).join('')}${fams.length>8?`<span class="small">+ ${fams.length-8} more</span>`:''}</div>`;
+  });
+  el.querySelector('.tile')?.click();
+})();
+
+// ── appendix: methodology ─────────────────────────────────────────────────
+$('#pipeline').innerHTML = [
+  ['1 command','defines the ground truth: a ripgrep over src/ for every syntactic use of the unsafe keyword. 13,365 matches in 774 files.'],
+  ['51 × (2+2)','census: 51 file groups, no overlaps, no gaps; two independent readers + two adversarial reviewers each. Of 1,642 verdicts, 298 corrected a count, an example, or a categorization. 0 were refuted — refuting required showing the claimed pattern did not exist in the cited files at all.'],
+  ['33 × (2+1)','classification: two independent classifiers per group + an adjudicator who resolves every disagreement by reading the code. Agreement: 74% / 83% / 51% by pass.'],
+  ['209 → ' + DATA.unsound_safe.hand_verified.length,'safe-function sweep: every flagged location carries a claimed safe-code trigger; only the hand-verified subset is presented as findings.'],
+  ['= 13,365','the pattern counts, the outcome counts, and the origin counts each independently sum to the ripgrep total.'],
+].map(([n,l])=>`<div class="pstep"><div class="pn">${n}</div><div class="pl">${l}</div></div>`).join('');
+$('#measure-cmd').textContent = DATA.meta.measurement;
+$('#recon').innerHTML = `<tr><th>four independent partitions of the same sites</th><th style="text-align:right">sum</th></tr>` + [
+  ['Ground truth: ripgrep over src/, vendored C/C++ excluded', fmt(DATA.total)],
+  ['Σ of the 51 census group totals (no file counted twice)', fmt(DATA.total)],
+  ['Σ of the 15 patterns', fmt(DATA.total)],
+  ['Σ of the five outcomes', fmt(DATA.total)],
+].map(([k,v])=>`<tr><td>${k}</td><td class="n">${v}</td></tr>`).join('');
+$('#caveat').innerHTML = `<b>What to be skeptical of.</b> The reading and classification were done by
+language-model agents in a fixed pipeline: two independent passes, adversarial review, adjudication of every
+disagreement, reconciliation against the ripgrep ground truth. The weak points are published. The agreement rates
+above show how much judgment the adjudicators absorbed — 51% on parent-pointer liveness deserves the most
+scrutiny. The splits for the four largest patterns (52% of all sites) were measured per site; the other eleven are
+estimates over verified counts. The safe-function sweep over-flags by design; only the hand-verified subset is
+presented as findings. The soundness of specific primitives, every <code>file:line</code>, and the codegen claims
+were checked by hand.`;
+</script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"1bec14033be74a0697a763e49f8bfdae","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
+

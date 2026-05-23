@@ -1,6 +1,6 @@
 baseURL: "https://davidchandra95.github.io/blog/"
 languageCode: "en-us"
-title: "~/blog"
+title: "commit.log"
 theme: "neon"
 paginate: 5
 summaryLength: 30
@@ -53,8 +53,11 @@ params:
   description: "Thoughts on code, systems, and building things."
   author: "David Chandra"
   github: "davidchandra95"
-  accent: "#00e5ff"      # cyan neon
-  accentAlt: "#ff2d95"   # pink neon
-  bg: "#0d1117"
-  fg: "#c9d1d9"
-  fontMono: "JetBrains Mono, Fira Code, SF Mono, Monaco, monospace"
+  accent: "#f5a97f"      # Bun peach-orange
+  accentAlt: "#7fd1a8"   # Bun green
+  bg: "#0b0c0f"          # Bun deep dark bg
+  fg: "#f2ede2"          # Bun rich warm text
+  # Font stacks
+  fontHeading: '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif'
+  fontBody: '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif'
+  fontCode: '"JetBrains Mono", "SF Mono", "Fira Code", monospace'

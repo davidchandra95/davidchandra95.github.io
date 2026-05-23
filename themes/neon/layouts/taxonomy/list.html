@@ -1,11 +1,16 @@
 {{ define "main" }}
-  <div class="terminal-line page-header">
+<div class="wrap" style="padding-top: 40px; padding-bottom: 60px;">
+  <div class="feed-header">
     <span class="prompt">❯</span>
     <span class="cmd">grep</span>
-    <span class="arg">-r "{{ .Title }}"</span>
+    <span class="arg">-r "#{{ .Title | lower }}"</span>
     <span class="count">({{ len .Pages }})</span>
   </div>
-  {{ range .Pages }}
-    {{ partial "post-card.html" . }}
-  {{ end }}
+  
+  <div class="post-feed">
+    {{ range .Pages }}
+      {{ partial "post-card.html" . }}
+    {{ end }}
+  </div>
+</div>
 {{ end }}

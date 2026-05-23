@@ -1,13 +1,16 @@
-<header class="site-header">
-  <div class="header-inner">
-    <a href="{{ .Site.Home.RelPermalink }}" class="logo">
-      <span class="prompt">❯</span> <span class="logo-text">~/blog</span>
-    </a>
-    <nav class="nav-links">
-      <a href="{{ "posts/" | relURL }}">/posts</a>
-      <a href="{{ "tags/" | relURL }}">/tags</a>
-      <a href="{{ "categories/" | relURL }}">/categories</a>
-      <a href="https://github.com/{{ .Site.Params.github }}" target="_blank" rel="noopener">/github</a>
-    </nav>
+<nav class="navbar">
+  <div class="wrap">
+    <div class="nav-left">
+      <a href="{{ .Site.Home.RelPermalink }}" class="brand">
+        <span class="dot"></span>
+        <span class="brand-text">{{ .Site.Title | default "commit.log" }}</span>
+      </a>
+    </div>
+    <div class="nav-right">
+      <a href="{{ "posts/" | relURL }}" class="nav-link{{ if eq .Section "posts" }} active{{ end }}">/posts</a>
+      <a href="{{ "tags/" | relURL }}" class="nav-link">/tags</a>
+      <a href="{{ "categories/" | relURL }}" class="nav-link">/categories</a>
+      <a href="https://github.com/{{ .Site.Params.github }}" class="nav-link" target="_blank" rel="noopener">/github</a>
+    </div>
   </div>
-</header>
+</nav>

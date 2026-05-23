@@ -1,5 +1,6 @@
 {{ define "main" }}
-  <div class="terminal-line page-header">
+<div class="wrap" style="padding-top: 40px; padding-bottom: 60px;">
+  <div class="feed-header">
     <span class="prompt">❯</span>
     <span class="cmd">ls</span>
     <span class="arg">~/posts/</span>
@@ -7,20 +8,21 @@
   </div>
 
   {{ range .Pages.GroupByDate "2006" }}
-  <section class="archive-year">
-    <h2 class="year-heading">
+  <section class="archive-year" style="margin-bottom: 2rem;">
+    <h2 class="year-heading" style="border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; font-family: var(--mono); font-size: 14px;">
       <span class="prompt">❯</span>
       <span class="cmd">./{{ .Key }}</span>
-      <span class="count">({{ len .Pages }})</span>
+      <span class="count" style="color: var(--mut)">({{ len .Pages }})</span>
     </h2>
-    <ul class="post-list">
+    <ul class="post-list" style="list-style: none;">
       {{ range .Pages }}
-      <li>
-        <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "Jan 02" }}</time>
-        <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+      <li style="display: flex; gap: 1rem; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--line);">
+        <time datetime="{{ .Date.Format "2006-01-02" }}" style="font-family: var(--mono); font-size: 12px; color: var(--accent); min-width: 80px;">{{ .Date.Format "Jan 02" }}</time>
+        <a href="{{ .RelPermalink }}" style="color: var(--tx); font-weight: 550;">{{ .Title }}</a>
       </li>
       {{ end }}
     </ul>
   </section>
   {{ end }}
+</div>
 {{ end }}

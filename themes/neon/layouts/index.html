@@ -1,22 +1,33 @@
 {{ define "main" }}
-  <div class="home-intro">
-    <pre class="ascii-header">
-  ___  ___  ___  ___ 
- | __|| _ \/ _ \/ __|
- | _| |   / (_) \__ \
- |___||_|_\\___/|___/
-    </pre>
-    <p class="tagline">{{ .Site.Params.description }}</p>
-    <div class="terminal-line">
-      <span class="prompt">❯</span>
-      <span class="cmd">cat</span>
-      <span class="arg">~/posts/</span>
+<header class="homepage-hero">
+  <div class="wrap">
+    <div class="hero-meta">
+      {{ .Site.Title | default "~/blog" }} <span>· Systems & Software Engineering</span>
     </div>
+    <h1 class="hero-title">
+      Thoughts on building robust, high-performance systems.
+    </h1>
+    <p class="lede">
+      Articles, engineering audits, and deep dives into compilers, runtimes, and system architecture. Curated by <b>{{ .Site.Params.author }}</b>.
+    </p>
   </div>
-  {{ $posts := where .Site.RegularPages "Section" "posts" }}
-  {{ $paginator := .Paginate $posts }}
-  {{ range $paginator.Pages }}
-    {{ partial "post-card.html" . }}
-  {{ end }}
+</header>
+
+<div class="wrap">
+  <div class="feed-header">
+    <span class="prompt">❯</span>
+    <span class="cmd">ls -l</span>
+    <span class="arg">~/posts/</span>
+  </div>
+  
+  <div class="post-feed">
+    {{ $posts := where .Site.RegularPages "Section" "posts" }}
+    {{ $paginator := .Paginate $posts }}
+    {{ range $paginator.Pages }}
+      {{ partial "post-card.html" . }}
+    {{ end }}
+  </div>
+  
   {{ partial "pagination.html" . }}
+</div>
 {{ end }}

@@ -1,16 +1,19 @@
 {{ define "main" }}
-  <div class="terminal-line page-header">
+<div class="wrap" style="padding-top: 40px; padding-bottom: 60px;">
+  <div class="feed-header" style="margin-bottom: 2rem;">
     <span class="prompt">❯</span>
     <span class="cmd">find</span>
-    <span class="arg">/tags</span>
+    <span class="arg">/tags/</span>
   </div>
-  <ul class="taxonomy-cloud">
+  
+  <ul class="taxonomy-cloud" style="list-style: none; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 1rem;">
     {{ range .Pages.ByTitle }}
     <li>
-      <a href="{{ .RelPermalink }}" class="tag taxonomy-item">
-        #{{ .Title }} <span class="tag-count">({{ len .Pages }})</span>
+      <a href="{{ .RelPermalink }}" class="tag-badge" style="font-size: 13.5px; padding: 6px 14px;">
+        #{{ .Title }} <span class="tag-count" style="color: var(--mut); font-size: 11px; font-family: var(--mono);">({{ len .Pages }})</span>
       </a>
     </li>
     {{ end }}
   </ul>
+</div>
 {{ end }}
